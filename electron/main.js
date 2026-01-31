@@ -346,6 +346,10 @@ ipcMain.handle('window:hide', () => {
   return true;
 });
 
+ipcMain.handle('window:close', () => {
+  app.quit();
+});
+
 ipcMain.handle('provider:cancel', () => {
   if (activeChatController) {
     activeChatController.abort();

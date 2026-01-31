@@ -9,7 +9,8 @@ import {
   Cloud,
   X,
   RefreshCcw,
-  Minus
+  Minus,
+  Power
 } from 'lucide-react';
 
 const defaultSettings = {
@@ -480,6 +481,12 @@ export default function App() {
     }
   };
 
+  const handleQuit = () => {
+    if (window.api?.closeWindow) {
+      window.api.closeWindow();
+    }
+  };
+
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -508,6 +515,7 @@ export default function App() {
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={handleNewChat}
               aria-label="Start new chat"
+              title="Novo Chat"
             >
               <RefreshCcw size={16} />
             </button>
@@ -515,6 +523,7 @@ export default function App() {
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={handleHide}
               aria-label="Hide chat window"
+              title="Minimizar (Ctrl+Shift+Space)"
             >
               <Minus size={16} />
             </button>
@@ -522,8 +531,17 @@ export default function App() {
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={() => setShowSettings(true)}
               aria-label="Open settings"
+              title="Configurações"
             >
               <Settings size={16} />
+            </button>
+            <button
+              className="rounded-full border border-white/10 bg-white/10 p-2 text-red-200/80 transition hover:bg-red-500/20 hover:text-red-200"
+              onClick={handleQuit}
+              aria-label="Quit application"
+              title="Fechar Aplicação"
+            >
+              <Power size={16} />
             </button>
           </div>
         </header>
@@ -540,11 +558,10 @@ export default function App() {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[82%] space-y-2 rounded-2xl border px-3 py-2 text-sm leading-relaxed ${
-                  message.role === 'user'
-                    ? 'border-emerald-300/30 bg-emerald-400/10'
-                    : 'border-white/10 bg-slate-900/60'
-                }`}
+                className={`max-w-[82%] space-y-2 rounded-2xl border px-3 py-2 text-sm leading-relaxed ${message.role === 'user'
+                  ? 'border-emerald-300/30 bg-emerald-400/10'
+                  : 'border-white/10 bg-slate-900/60'
+                  }`}
               >
                 {message.imageDataUrl && (
                   <img
@@ -676,11 +693,10 @@ export default function App() {
               ].map((tab) => (
                 <button
                   key={tab.key}
-                  className={`shrink-0 rounded-full border px-3 py-1 transition ${
-                    settingsTab === tab.key
-                      ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
-                      : 'border-white/10 bg-white/5 text-slate-200'
-                  }`}
+                  className={`shrink-0 rounded-full border px-3 py-1 transition ${settingsTab === tab.key
+                    ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
+                    : 'border-white/10 bg-white/5 text-slate-200'
+                    }`}
                   onClick={() => setSettingsTab(tab.key)}
                   type="button"
                 >
@@ -699,11 +715,10 @@ export default function App() {
                     {['ollama', 'groq', 'openai', 'openrouter', 'gemini'].map((providerOption) => (
                       <button
                         key={providerOption}
-                        className={`rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${
-                          settings.provider === providerOption
-                            ? 'border-emerald-300/30 bg-emerald-400/15'
-                            : 'border-white/10 bg-white/5'
-                        }`}
+                        className={`rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.provider === providerOption
+                          ? 'border-emerald-300/30 bg-emerald-400/15'
+                          : 'border-white/10 bg-white/5'
+                          }`}
                         onClick={() => updateSetting('provider', providerOption)}
                       >
                         {providerOption}
@@ -740,21 +755,19 @@ export default function App() {
                   </label>
                   <div className="mb-4 flex gap-2">
                     <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${
-                        settings.dbToolEnabled
-                          ? 'border-emerald-300/30 bg-emerald-400/15'
-                          : 'border-white/10 bg-white/5'
-                      }`}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.dbToolEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
                       onClick={() => updateSetting('dbToolEnabled', true)}
                     >
                       Enabled
                     </button>
                     <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${
-                        !settings.dbToolEnabled
-                          ? 'border-emerald-300/30 bg-emerald-400/15'
-                          : 'border-white/10 bg-white/5'
-                      }`}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${!settings.dbToolEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
                       onClick={() => updateSetting('dbToolEnabled', false)}
                     >
                       Disabled
@@ -766,11 +779,10 @@ export default function App() {
                   </label>
                   <div className="mb-4 flex gap-2">
                     <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${
-                        settings.floatingShortcutEnabled
-                          ? 'border-emerald-300/30 bg-emerald-400/15'
-                          : 'border-white/10 bg-white/5'
-                      }`}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.floatingShortcutEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
                       onClick={() => {
                         updateSetting('floatingShortcutEnabled', true);
                         if (window.api?.setShortcutEnabled) {
@@ -781,11 +793,10 @@ export default function App() {
                       Enabled
                     </button>
                     <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${
-                        !settings.floatingShortcutEnabled
-                          ? 'border-emerald-300/30 bg-emerald-400/15'
-                          : 'border-white/10 bg-white/5'
-                      }`}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${!settings.floatingShortcutEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
                       onClick={() => {
                         updateSetting('floatingShortcutEnabled', false);
                         if (window.api?.setShortcutEnabled) {
@@ -929,11 +940,10 @@ export default function App() {
                     {ollamaOptionPresets.map((preset) => (
                       <button
                         key={preset.label}
-                        className={`rounded-full border px-3 py-1 transition ${
-                          activeOllamaPreset === preset.label
-                            ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
-                            : 'border-white/10 bg-white/5 text-slate-200'
-                        }`}
+                        className={`rounded-full border px-3 py-1 transition ${activeOllamaPreset === preset.label
+                          ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100'
+                          : 'border-white/10 bg-white/5 text-slate-200'
+                          }`}
                         onClick={() => updateSetting('ollamaOptions', preset.value)}
                         type="button"
                       >

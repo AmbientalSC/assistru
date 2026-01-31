@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   chat: (messages) => ipcRenderer.invoke('provider:chat', messages),
   captureScreenshot: () => ipcRenderer.invoke('capture-screenshot'),
   hideWindow: () => ipcRenderer.invoke('window:hide'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
   cancelChat: () => ipcRenderer.invoke('provider:cancel'),
   listOllamaLocal: () => ipcRenderer.invoke('ollama:listLocal'),
   listOllamaRemote: () => ipcRenderer.invoke('ollama:listRemote'),
