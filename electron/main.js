@@ -32,9 +32,10 @@ const store = new Store({
     ollamaOptions: '',
     ollamaApiKey: '',
     supabaseApiKey: '',
-    dbToolEnabled: false,
+    dbToolEnabled: true,
     windowOpacity: 0.92,
-    floatingShortcutEnabled: true
+    floatingShortcutEnabled: true,
+    globalShortcut: 'CommandOrControl+Shift+Space'
   }
 });
 
@@ -212,7 +213,7 @@ app.whenReady().then(() => {
     createShortcutWindow();
   }
 
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+  globalShortcut.register(store.get('globalShortcut', 'CommandOrControl+Shift+Space'), () => {
     toggleWindow();
   });
 
@@ -243,7 +244,23 @@ ipcMain.handle('settings:get', () => {
 
 ipcMain.handle('settings:set', (event, updates) => {
   if (updates && typeof updates === 'object') {
+    const oldShortcut = store.get('globalShortcut');
     store.set(updates);
+    const newShortcut = store.get('globalShortcut');
+
+    // Update global shortcut if changed
+    if (oldShortcut !== newShortcut && newShortcut) {
+      if (oldShortcut) {
+        globalShortcut.unregister(oldShortcut);
+      }
+      try {
+        globalShortcut.register(newShortcut, () => {
+          toggleWindow();
+        });
+      } catch (err) {
+        console.error('Failed to register shortcut:', newShortcut, err);
+      }
+    }
   }
   return store.store;
 });

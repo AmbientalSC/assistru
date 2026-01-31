@@ -28,9 +28,10 @@ const defaultSettings = {
   ollamaOptions: '',
   ollamaApiKey: '',
   supabaseApiKey: '',
-  dbToolEnabled: false,
+  dbToolEnabled: true,
   windowOpacity: 0.92,
-  floatingShortcutEnabled: true
+  floatingShortcutEnabled: true,
+  globalShortcut: 'CommandOrControl+Shift+Space'
 };
 
 const groqModelOptions = [
@@ -807,6 +808,35 @@ export default function App() {
                       Disabled
                     </button>
                   </div>
+
+                  <label className="mb-2 mt-4 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Global Shortcut
+                  </label>
+                  <input
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 text-center placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 cursor-pointer hover:bg-white/10 transition"
+                    value={settings.globalShortcut || 'CommandOrControl+Shift+Space'}
+                    onKeyDown={(e) => {
+                      e.preventDefault();
+                      const keys = [];
+                      if (e.ctrlKey || e.metaKey) keys.push('CommandOrControl');
+                      if (e.altKey) keys.push('Alt');
+                      if (e.shiftKey) keys.push('Shift');
+
+                      let key = e.key;
+                      if (key === ' ') key = 'Space';
+                      if (key.length === 1) key = key.toUpperCase();
+
+                      if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
+
+                      const shortcut = [...keys, key].join('+');
+                      updateSetting('globalShortcut', shortcut);
+                    }}
+                    readOnly
+                    placeholder="Click and press keys (e.g. Ctrl+Shift+S)"
+                  />
+                  <p className="mt-2 text-[10px] text-slate-400 text-center">
+                    Click and press the desired key combination to change the toggle shortcut.
+                  </p>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                     Supabase API Key
