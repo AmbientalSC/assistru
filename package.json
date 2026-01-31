@@ -1,15 +1,72 @@
 {
-  "name": "aether-chat",
+  "name": "ambi-chat",
   "version": "0.1.0",
-  "private": true,
+  "description": "Assistente de IA flutuante para consulta de materiais recicláveis",
+  "author": "Ambiental Limpeza Urbana LTDA",
+  "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite",
     "dev:electron": "wait-on tcp:5173 && electron .",
     "build": "vite build",
+    "build:all": "npm run build",
+    "dist": "npm run build:all && electron-builder",
+    "dist:win": "npm run build:all && electron-builder --win",
+    "release": "npm run build:all && electron-builder --publish always",
     "preview": "vite preview",
     "start": "electron ."
+  },
+  "build": {
+    "appId": "com.ambiental.ambichat",
+    "productName": "Ambi Chat",
+    "copyright": "Copyright © 2026 Ambiental Limpeza Urbana LTDA",
+    "directories": {
+      "output": "release",
+      "buildResources": "."
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ambi Chat",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "license": "LICENSE"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "AmbientalSC",
+      "repo": "assistru"
+    }
   },
   "dependencies": {
     "electron-store": "^8.2.0",
@@ -25,6 +82,7 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "electron": "^29.4.6",
+    "electron-builder": "^25.1.8",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "vite": "^5.4.14",
