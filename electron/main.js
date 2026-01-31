@@ -2,7 +2,12 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, nativeImage } = req
 const path = require('path');
 const Store = require('electron-store');
 const screenshot = require('screenshot-desktop');
+const { autoUpdater } = require('electron-updater');
 const ProviderService = require('./providers/ProviderService');
+
+autoUpdater.logger = console;
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow;
 let overlayWindow;
@@ -210,6 +215,10 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
     toggleWindow();
   });
+
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
