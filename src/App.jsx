@@ -60,7 +60,7 @@ const ollamaOptionPresets = [
 
 const visionNameHints = ['vision', 'llava', 'minicpm', 'moondream', 'qwen-vl', 'qwen2-vl', 'phi-vision'];
 
-const formatStatus = (provider) => (provider === 'ollama' ? 'Local' : 'Cloud');
+const formatStatus = (provider) => (provider === 'ollama' ? 'Local' : 'Nuvem');
 
 const formatBytes = (bytes) => {
   if (!bytes || Number.isNaN(bytes)) return '';
@@ -226,7 +226,7 @@ export default function App() {
       }
       return 'Executando ferramenta...';
     }
-    return 'Ambi esta pensando...';
+    return 'Ambi está pensando...';
   }, [statusStage, activeToolName]);
 
   const markdownComponents = useMemo(
@@ -317,7 +317,7 @@ export default function App() {
         const models = await window.api.listOllamaLocal();
         setLocalOllamaModels(Array.isArray(models) ? models : []);
       } catch (error) {
-        setOllamaLocalError(error?.message || 'Failed to load local models.');
+        setOllamaLocalError(error?.message || 'Falha ao carregar modelos locais.');
       } finally {
         setIsLoadingLocal(false);
       }
@@ -330,7 +330,7 @@ export default function App() {
         const models = await window.api.listOllamaRemote();
         setRemoteOllamaModels(Array.isArray(models) ? models : []);
       } catch (error) {
-        setOllamaRemoteError(error?.message || 'Failed to load library models.');
+        setOllamaRemoteError(error?.message || 'Falha ao carregar biblioteca de modelos.');
       } finally {
         setIsLoadingRemote(false);
       }
@@ -343,7 +343,7 @@ export default function App() {
         const models = await window.api.listGeminiModels();
         setGeminiModels(Array.isArray(models) ? models : []);
       } catch (error) {
-        setGeminiModelsError(error?.message || 'Failed to load Gemini models.');
+        setGeminiModelsError(error?.message || 'Falha ao carregar modelos Gemini.');
       } finally {
         setIsLoadingGeminiModels(false);
       }
@@ -515,7 +515,7 @@ export default function App() {
             <button
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={handleNewChat}
-              aria-label="Start new chat"
+              aria-label="Iniciar novo chat"
               title="Novo Chat"
             >
               <RefreshCcw size={16} />
@@ -523,7 +523,7 @@ export default function App() {
             <button
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={handleHide}
-              aria-label="Hide chat window"
+              aria-label="Ocultar chat"
               title="Minimizar (Ctrl+Shift+Space)"
             >
               <Minus size={16} />
@@ -531,7 +531,7 @@ export default function App() {
             <button
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={() => setShowSettings(true)}
-              aria-label="Open settings"
+              aria-label="Abrir configurações"
               title="Configurações"
             >
               <Settings size={16} />
@@ -539,7 +539,7 @@ export default function App() {
             <button
               className="rounded-full border border-white/10 bg-white/10 p-2 text-red-200/80 transition hover:bg-red-500/20 hover:text-red-200"
               onClick={handleQuit}
-              aria-label="Quit application"
+              aria-label="Fechar aplicação"
               title="Fechar Aplicação"
             >
               <Power size={16} />
@@ -604,14 +604,14 @@ export default function App() {
             <div className="mb-2 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
               <img
                 src={pendingImage}
-                alt="Pending screenshot"
+                alt="Captura pendente"
                 className="h-12 w-16 rounded-lg border border-white/10 object-cover"
               />
-              <div className="text-xs text-slate-200/70">Screenshot attached</div>
+              <div className="text-xs text-slate-200/70">Captura anexada</div>
               <button
                 className="ml-auto rounded-full border border-white/10 bg-white/10 p-1 text-slate-200 hover:bg-white/20"
                 onClick={() => setPendingImage(null)}
-                aria-label="Remove screenshot"
+                aria-label="Remover captura"
               >
                 <X size={14} />
               </button>
@@ -621,7 +621,7 @@ export default function App() {
             <button
               className="no-drag rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200 transition hover:bg-white/20"
               onClick={handleScreenshot}
-              aria-label="Capture screenshot"
+              aria-label="Capturar tela"
             >
               <Camera size={18} />
             </button>
@@ -636,7 +636,7 @@ export default function App() {
               className="no-drag rounded-2xl border border-emerald-300/30 bg-emerald-400/15 p-3 text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={handleSend}
               disabled={isSending}
-              aria-label="Send message"
+              aria-label="Enviar mensagem"
             >
               <SendHorizontal size={18} />
             </button>
@@ -674,11 +674,11 @@ export default function App() {
         <div className="no-drag absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
           <div className="w-[90%] max-w-sm rounded-2xl border border-white/15 bg-slate-900/90 p-4 text-sm text-slate-100 shadow-glass">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Settings</h2>
+              <h2 className="text-sm font-semibold">Configurações</h2>
               <button
                 className="rounded-full border border-white/10 bg-white/10 p-1 hover:bg-white/20"
                 onClick={() => setShowSettings(false)}
-                aria-label="Close settings"
+                aria-label="Fechar configurações"
               >
                 <X size={14} />
               </button>
@@ -710,7 +710,7 @@ export default function App() {
               {settingsTab === 'general' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Provider
+                    Provedor
                   </label>
                   <div className="mb-4 grid grid-cols-2 gap-2">
                     {['ollama', 'groq', 'openai', 'openrouter', 'gemini'].map((providerOption) => (
@@ -728,7 +728,7 @@ export default function App() {
                   </div>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Window Opacity
+                    Opacidade da Janela
                   </label>
                   <div className="mb-4 flex items-center gap-3">
                     <input
@@ -752,7 +752,7 @@ export default function App() {
                   </div>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Database Tool
+                    Ferramenta de Banco de Dados
                   </label>
                   <div className="mb-4 flex gap-2">
                     <button
@@ -762,7 +762,7 @@ export default function App() {
                         }`}
                       onClick={() => updateSetting('dbToolEnabled', true)}
                     >
-                      Enabled
+                      Ativado
                     </button>
                     <button
                       className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${!settings.dbToolEnabled
@@ -771,12 +771,12 @@ export default function App() {
                         }`}
                       onClick={() => updateSetting('dbToolEnabled', false)}
                     >
-                      Disabled
+                      Desativado
                     </button>
                   </div>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Floating Shortcut
+                    Atalho Flutuante
                   </label>
                   <div className="mb-4 flex gap-2">
                     <button
@@ -810,7 +810,7 @@ export default function App() {
                   </div>
 
                   <label className="mb-2 mt-4 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Global Shortcut
+                    Atalho Global
                   </label>
                   <input
                     className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 text-center placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 cursor-pointer hover:bg-white/10 transition"
@@ -832,10 +832,10 @@ export default function App() {
                       updateSetting('globalShortcut', shortcut);
                     }}
                     readOnly
-                    placeholder="Click and press keys (e.g. Ctrl+Shift+S)"
+                    placeholder="Clique e pressione as teclas desejadas (ex: Ctrl+Shift+S)"
                   />
                   <p className="mt-2 text-[10px] text-slate-400 text-center">
-                    Click and press the desired key combination to change the toggle shortcut.
+                    Clique e pressione a combinação de teclas desejada para alterar o atalho de alternância.
                   </p>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
@@ -854,7 +854,7 @@ export default function App() {
               {settingsTab === 'ollama' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Ollama Endpoint
+                    Endpoint Ollama
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -864,7 +864,7 @@ export default function App() {
                     onChange={(event) => updateSetting('ollamaEndpoint', event.target.value)}
                   />
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Ollama API Key (optional)
+                    Chave API Ollama (opcional)
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -875,7 +875,7 @@ export default function App() {
                   />
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Ollama Model
+                    Modelo Ollama
                   </label>
                   <div className="mb-3 flex items-center gap-2">
                     <select
@@ -889,7 +889,7 @@ export default function App() {
                       }}
                     >
                       {localOllamaNames.length > 0 && (
-                        <optgroup label="Installed">
+                        <optgroup label="Instalados">
                           {localOllamaNames.map((name) => (
                             <option key={`local-${name}`} value={name} className="bg-slate-900">
                               {name}
@@ -898,7 +898,7 @@ export default function App() {
                         </optgroup>
                       )}
                       {filteredRemoteOllama.length > 0 && (
-                        <optgroup label="Available to download">
+                        <optgroup label="Disponível para download">
                           {filteredRemoteOllama.map((model) => (
                             <option
                               key={`remote-${model.name}`}
@@ -911,14 +911,14 @@ export default function App() {
                         </optgroup>
                       )}
                       <option value="__custom__" className="bg-slate-900">
-                        Custom...
+                        Personalizado...
                       </option>
                     </select>
                     <button
                       className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
                       onClick={handleRefreshOllama}
                       type="button"
-                      aria-label="Refresh Ollama models"
+                      aria-label="Atualizar modelos Ollama"
                     >
                       {isLoadingLocal || isLoadingRemote ? '...' : <RefreshCcw size={14} />}
                     </button>
@@ -933,20 +933,20 @@ export default function App() {
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-widest text-slate-300/70">
                     {ollamaSizeLabel && (
                       <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
-                        Size: {ollamaSizeLabel}
+                        Tamanho: {ollamaSizeLabel}
                       </span>
                     )}
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
-                      {ollamaCapabilityLabel}
+                      {ollamaCapabilityLabel === 'image + text' ? 'imagem + texto' : 'texto'}
                     </span>
                   </div>
                   <div className="mt-2 text-[11px] text-slate-300/70">
-                    Installed: {localOllamaNames.length || 0} | Library: {remoteOllamaModels.length || 0}
+                    Instalados: {localOllamaNames.length || 0} | Biblioteca: {remoteOllamaModels.length || 0}
                   </div>
                   <input
                     className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     type="text"
-                    placeholder="Search Ollama library..."
+                    placeholder="Pesquisar biblioteca Ollama..."
                     value={ollamaSearch}
                     onChange={(event) => setOllamaSearch(event.target.value)}
                   />
@@ -958,7 +958,7 @@ export default function App() {
                   )}
 
                   <label className="mb-2 mt-4 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Ollama Options (JSON)
+                    Opções Ollama (JSON)
                   </label>
                   <textarea
                     className="h-20 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -977,7 +977,9 @@ export default function App() {
                         onClick={() => updateSetting('ollamaOptions', preset.value)}
                         type="button"
                       >
-                        {preset.label}
+                        {preset.label === 'Balanced (2K ctx)' ? 'Equilibrado (2K ctx)' :
+                          preset.label === 'More GPU (2K ctx)' ? 'Mais GPU (2K ctx)' :
+                            preset.label === 'Low VRAM (1K ctx)' ? 'Pouca VRAM (1K ctx)' : preset.label}
                       </button>
                     ))}
                     <button
@@ -985,12 +987,12 @@ export default function App() {
                       onClick={() => updateSetting('ollamaOptions', '')}
                       type="button"
                     >
-                      Clear
+                      Limpar
                     </button>
                   </div>
                   {!isOllamaOptionsValid && (
                     <p className="mt-2 text-[11px] text-amber-200/80">
-                      Invalid JSON. Fix the syntax to apply Ollama options.
+                      JSON inválido. Corrija a sintaxe para aplicar as opções do Ollama.
                     </p>
                   )}
                 </div>
@@ -999,7 +1001,7 @@ export default function App() {
               {settingsTab === 'groq' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Groq API Key
+                    Chave API Groq
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -1010,7 +1012,7 @@ export default function App() {
                   />
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Groq Model
+                    Modelo Groq
                   </label>
                   <select
                     className="mb-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -1028,7 +1030,7 @@ export default function App() {
                       </option>
                     ))}
                     <option value="__custom__" className="bg-slate-900">
-                      Custom...
+                      Personalizado...
                     </option>
                   </select>
                   <input
@@ -1044,7 +1046,7 @@ export default function App() {
               {settingsTab === 'openai' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    OpenAI API Key
+                    Chave API OpenAI
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -1055,7 +1057,7 @@ export default function App() {
                   />
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    OpenAI Model
+                    Modelo OpenAI
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -1070,7 +1072,7 @@ export default function App() {
               {settingsTab === 'openrouter' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    OpenRouter API Key
+                    Chave API OpenRouter
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-emerald-400/40"
@@ -1081,7 +1083,7 @@ export default function App() {
                   />
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    OpenRouter Model
+                    Modelo OpenRouter
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-emerald-400/40"
@@ -1096,7 +1098,7 @@ export default function App() {
               {settingsTab === 'gemini' && (
                 <div>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Gemini API Key
+                    Chave API Gemini
                   </label>
                   <input
                     className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-emerald-400/40"
@@ -1107,7 +1109,7 @@ export default function App() {
                   />
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Gemini Model
+                    Modelo Gemini
                   </label>
                   <div className="mb-3 flex items-center gap-2">
                     <select
@@ -1126,14 +1128,14 @@ export default function App() {
                         </option>
                       ))}
                       <option value="__custom__" className="bg-slate-900">
-                        Custom...
+                        Personalizado...
                       </option>
                     </select>
                     <button
                       className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
                       onClick={handleRefreshGemini}
                       type="button"
-                      aria-label="Refresh Gemini models"
+                      aria-label="Atualizar modelos Gemini"
                     >
                       {isLoadingGeminiModels ? '...' : <RefreshCcw size={14} />}
                     </button>
@@ -1146,12 +1148,12 @@ export default function App() {
                     onChange={(event) => updateSetting('geminiModel', event.target.value)}
                   />
                   <div className="mt-2 text-[11px] text-slate-300/70">
-                    Models: {geminiModelOptions.length || 0}
+                    Modelos: {geminiModelOptions.length || 0}
                   </div>
                   <input
                     className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-emerald-400/40"
                     type="text"
-                    placeholder="Search Gemini models..."
+                    placeholder="Pesquisar modelos Gemini..."
                     value={geminiSearch}
                     onChange={(event) => setGeminiSearch(event.target.value)}
                   />
