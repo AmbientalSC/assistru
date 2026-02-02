@@ -39,7 +39,9 @@ const defaultSettings = {
   dbToolEnabled: true,
   windowOpacity: 0.92,
   floatingShortcutEnabled: true,
-  globalShortcut: 'CommandOrControl+Shift+Space'
+  globalShortcut: 'CommandOrControl+Shift+Space',
+  sofitEmail: '',
+  sofitPassword: ''
 };
 
 const groqModelOptions = [
@@ -980,7 +982,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.14</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.15</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1294,10 +1296,10 @@ export default function App() {
                 { key: 'general', label: 'Geral' },
                 { key: 'ollama', label: 'Ollama' },
                 { key: 'groq', label: 'Groq' },
-                { key: 'openai', label: 'OpenAI' },
-                { key: 'openrouter', label: 'OpenRouter' },
+                // { key: 'openai', label: 'OpenAI' },
+                // { key: 'openrouter', label: 'OpenRouter' },
                 { key: 'gemini', label: 'Gemini' },
-                { key: 'supabase', label: 'Supabase' },
+                { key: 'integration', label: 'Integração' },
                 { key: 'personalities', label: 'Personalidades' }
               ].map((tab) => (
                 <button
@@ -1321,7 +1323,7 @@ export default function App() {
                     Provedor
                   </label>
                   <div className="mb-4 grid grid-cols-2 gap-2">
-                    {['ollama', 'groq', 'openai', 'openrouter', 'gemini'].map((providerOption) => (
+                    {['ollama', 'groq', 'gemini'].map((providerOption) => (
                       <button
                         key={providerOption}
                         className={`rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.provider === providerOption
@@ -1785,8 +1787,10 @@ export default function App() {
               )}
 
 
-              {settingsTab === 'supabase' && (
+              {settingsTab === 'integration' && (
                 <div>
+                  {/* Supabase Section */}
+                  <h3 className="mb-4 text-sm font-semibold text-emerald-400">Supabase</h3>
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                     Supabase API Key
                   </label>
@@ -1824,6 +1828,38 @@ export default function App() {
                       Desativado
                     </button>
                   </div>
+
+                  {/* Separator */}
+                  <div className="my-6 h-px bg-white/10" />
+
+                  {/* Sofit Section */}
+                  <h3 className="mb-4 text-sm font-semibold text-emerald-400">Sofit (Manutenção)</h3>
+                  <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+                    <strong className="block mb-1">Configuração de Acesso</strong>
+                    Insira seu email e senha do Sofit. O token de acesso será gerado automaticamente a cada consulta.
+                  </div>
+
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Email
+                  </label>
+                  <input
+                    className="mb-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    type="email"
+                    placeholder="usuario@empresa.com"
+                    value={settings.sofitEmail || ''}
+                    onChange={(event) => updateSetting('sofitEmail', event.target.value)}
+                  />
+
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Senha
+                  </label>
+                  <input
+                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    type="password"
+                    placeholder="********"
+                    value={settings.sofitPassword || ''}
+                    onChange={(event) => updateSetting('sofitPassword', event.target.value)}
+                  />
                 </div>
               )}
 

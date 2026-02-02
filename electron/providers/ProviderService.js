@@ -34,6 +34,31 @@ const DB_TOOLS = [
         required: ['termo']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fetchServiceOrders',
+      description: 'Busca ordens de serviço no sistema Sofit via GraphQL. Requer paginação manual.',
+      parameters: {
+        type: 'object',
+        properties: {
+          search: {
+            type: 'string',
+            description: 'Texto de busca (placa ou prefixo), ex: "VT7246".'
+          },
+          page: {
+            type: 'integer',
+            description: 'Número da página atual (inicia em 1).'
+          },
+          lastIntegrationDate: {
+            type: 'string',
+            description: 'Data de corte para a API (ISO 8601), ex: "2025-01-01T00:00:00Z".'
+          }
+        },
+        required: ['search', 'page']
+      }
+    }
   }
 ];
 
@@ -268,7 +293,8 @@ class ProviderService {
   async runToolLoop({ provider, messages, signal, onStatus }) {
     const notify = typeof onStatus === 'function' ? onStatus : () => { };
     let conversation = [...messages];
-    for (let step = 0; step < 3; step += 1) {
+    // Increased loop limit to 10 to allow Sofit pagination
+    for (let step = 0; step < 10; step += 1) {
       notify({ stage: 'thinking' });
       const responseMessage =
         provider === 'openai'
@@ -708,6 +734,24 @@ class ProviderService {
           name,
           content: JSON.stringify(result)
         });
+      } else if (name === 'fetchServiceOrders') {
+        notify({ stage: 'tool', tool: name });
+        try {
+          const result = await this.fetchServiceOrders(args);
+          results.push({
+            role: 'tool',
+            tool_call_id: call?.id || call?.tool_call_id,
+            name,
+            content: JSON.stringify(result)
+          });
+        } catch (err) {
+          results.push({
+            role: 'tool',
+            tool_call_id: call?.id || call?.tool_call_id,
+            name,
+            content: JSON.stringify({ error: err.message })
+          });
+        }
       } else {
         results.push({
           role: 'tool',
@@ -775,6 +819,188 @@ class ProviderService {
       count: Array.isArray(data) ? data.length : 0,
       items: Array.isArray(data) ? data : []
     };
+  }
+
+  async getSofitToken() {
+    // Try auto-login
+    const email = this.store.get('sofitEmail', '');
+    const password = this.store.get('sofitPassword', '');
+
+    if (!email || !password) {
+      throw new Error('Sofit Authentication failed: Missing Email/Password in settings.');
+    }
+
+    const baseUrl = 'https://sofitview.com.br';
+
+    // 1. Try REST Endpoints (Primary Method)
+    const restPaths = [
+      '/api/v2/auth/login',
+      '/api/v2/login',
+      '/api/v1/users/login',
+      '/api/auth/login',
+      '/login'
+    ];
+
+    const payloads = [
+      { email, password },
+      { username: email, password },
+      { user: email, password },
+      { user_name: email, password }
+    ];
+
+    // Helper to recursively find token
+    const findToken = (obj) => {
+      if (!obj) return null;
+      if (typeof obj === 'string' && obj.length > 50) return obj; // Simple heuristic
+      if (typeof obj === 'object') {
+        for (const key in obj) {
+          const k = key.toLowerCase();
+          if ((k === 'token' || k.includes('access_token') || k === 'jwt') && typeof obj[key] === 'string') {
+            return obj[key];
+          }
+          const found = findToken(obj[key]);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    for (const path of restPaths) {
+      if (path === '/login') continue; // Skip root login to avoid HTML responses usually
+      const url = `${baseUrl}${path}`;
+      for (const payload of payloads) {
+        try {
+          // console.log(`Sofit Auth: Trying POST ${url} with payload keys: ${Object.keys(payload)}`);
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (response.ok) {
+            const json = await response.json().catch(() => null);
+            const token = findToken(json);
+            if (token) return token;
+          }
+        } catch (err) {
+          // Ignore network errors during trial
+        }
+      }
+    }
+
+    // 2. Try GraphQL Mutations (Fallback)
+    const gqlUrl = `${baseUrl}/api/v2/graphql`;
+    const mutations = [
+      {
+        name: 'login',
+        query: 'mutation($email:String!,$password:String!){ login(email:$email,password:$password){ token access_token jwt } }'
+      },
+      {
+        name: 'authenticate',
+        query: 'mutation($email:String!,$password:String!){ authenticate(email:$email,password:$password){ token access_token jwt } }'
+      },
+      {
+        name: 'signIn',
+        query: 'mutation($email:String!,$password:String!){ signIn(email:$email,password:$password){ token access_token jwt } }'
+      }
+    ];
+
+    let lastError = null;
+
+    for (const { name, query } of mutations) {
+      try {
+        const response = await fetch(gqlUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query,
+            variables: { email, password }
+          })
+        });
+
+        const json = await response.json();
+        const data = json?.data?.[name];
+
+        if (data) {
+          const token = findToken(data);
+          if (token) return token;
+        }
+
+        if (json.errors) {
+          console.warn(`Sofit Auth attempt (${name}) failed with API errors:`, json.errors);
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw new Error('Sofit Authentication failed. Checked all REST endpoints and GraphQL mutations.');
+  }
+
+  async fetchServiceOrders({ search, page, lastIntegrationDate }) {
+    if (!search) throw new Error('Search term (plate/prefix) is required.');
+    const pageNum = Number(page) || 1;
+    const dateFilter = lastIntegrationDate || '2025-01-01T00:00:00Z';
+
+    const token = await this.getSofitToken();
+
+    const query = `
+      query ($search: String!, $page: Int!, $lastIntegrationDate: DateTime) {
+        serviceOrders(
+          search: $search,
+          page: $page,
+          perPage: 20,
+          lastIntegrationDate: $lastIntegrationDate,
+          sortField: "created_at",
+          sortOrder: "DESC"
+        ) {
+          nodes {
+            id
+            name
+            status
+            total_cost
+            created_at
+            updated_at
+            problem_description
+            vehicle { name }
+            hourmeter
+            final_odometer
+            supplier { name }
+            employee { id name }
+            foreseen_service_order_items {
+              id
+              name
+              foreseen_quantity
+              item { id name }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await fetch('https://sofitview.com.br/api/v2/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          search,
+          page: pageNum,
+          lastIntegrationDate: dateFilter
+        }
+      })
+    });
+
+    const json = await response.json();
+
+    if (json.errors) {
+      throw new Error(`Sofit API Error: ${JSON.stringify(json.errors)}`);
+    }
+
+    return json?.data?.serviceOrders || {};
   }
 
   async transcribe(audioBuffer, signal) {

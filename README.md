@@ -44,6 +44,16 @@
 - Consulta materiais recicláveis via Supabase
 - Informações por cidade
 - Orientações de descarte específicas
+ 
+ ### 🎙️ Interação por Voz e Transcrição
+ - **Gravação de Áudio:** Capture áudio do microfone e/ou do sistema (reuniões, vídeos).
+ - **Visualizador em Tempo Real:** Acompanhe os níveis de áudio do microfone (vermelho) e sistema (verde).
+ - **Transcrição Inteligente:** O áudio é transcrito e pode ser usado para gerar resumos de reuniões ou anotações automáticas.
+ 
+ ### 🎭 Personalidades Customizáveis
+ - Crie assistentes especializados (ex: "Especialista em Leis", "Tutor de Python").
+ - Defina **System Prompts** personalizados para moldar o comportamento da IA.
+ - Alterne rapidamente entre personalidades no menu de configurações.
 
 ## 🚀 Instalação
 
@@ -129,6 +139,12 @@ Para habilitar consultas ao banco de materiais:
 - `Ctrl+Shift+Space`: Mostrar/ocultar janela
 - `Enter`: Enviar mensagem
 - `Shift+Enter`: Nova linha no texto
+ 
+ ### Gravação de Voz
+ 1. Clique no ícone de **microfone**.
+ 2. Fale ou reproduza o áudio que deseja capturar.
+ 3. Clique novamente para parar.
+ 4. O texto transcrito aparecerá no chat ou como contexto para sua pergunta.
 
 ## 🛠️ Desenvolvimento
 
