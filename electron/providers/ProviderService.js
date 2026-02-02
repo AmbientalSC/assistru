@@ -4,6 +4,12 @@ const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const SUPABASE_ENDPOINT = 'https://svldwcfxhgnqqrdugwzv.supabase.co/rest/v1';
 
+const DB_SYSTEM_PROMPT = `Voce e um assistente especializado em analisar dados da Ambiental SC.
+Seu objetivo e responder a pergunta do usuario com base APENAS no JSON fornecido.
+Diretrizes:
+1. Fidelidade: Nao invente informacoes. Se nao estiver no JSON, diga que nao encontrou.
+2. Clareza: Resuma os dados de forma organizada.
+3. Se houver muitos itens, liste os mais relevantes ou agrupe por categoria/cidade.`;
 
 
 const DB_TOOLS = [
@@ -777,7 +783,7 @@ class ProviderService {
 
   async requestTranscribe(provider, audioBuffer, signal) {
     let endpoint = 'https://api.groq.com/openai/v1/audio/transcriptions';
-    let model = 'whisper-large-v3-turbo';
+    let model = 'whisper-large-v3';
     let apiKey = this.store.get('groqApiKey');
 
     if (provider === 'openai') {

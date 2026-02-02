@@ -225,5 +225,5 @@ Para dúvidas, problemas ou sugestões:
 ---
 
 <div align="center">
-  Desenvolvido com ❤️ pela equipe Ambiental
+  Desenvolvido por Alysson Krombauer
 </div>

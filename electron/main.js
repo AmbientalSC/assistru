@@ -33,6 +33,17 @@ if (!gotTheLock) {
   });
 
   // Inicialização normal se conseguiu o lock
+  app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowedPermissions = ['media', 'display-capture', 'microphone', 'audioCapture'];
+      if (allowedPermissions.includes(permission)) {
+        callback(true);
+      } else {
+        callback(false);
+      }
+    });
+  });
+
   const store = new Store({
     defaults: {
       provider: 'ollama',

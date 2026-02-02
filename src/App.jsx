@@ -116,6 +116,8 @@ export default function App() {
   const [activePersonalityId, setActivePersonalityId] = useState('');
   const [editingPersonality, setEditingPersonality] = useState(null);
   const [transcriptionPreview, setTranscriptionPreview] = useState(null);
+  const [micLevel, setMicLevel] = useState(0);
+  const [sysLevel, setSysLevel] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioError, setAudioError] = useState(null);
   const mediaRecorderRef = useRef(null);
@@ -141,6 +143,73 @@ export default function App() {
   const [statusStage, setStatusStage] = useState('thinking');
   const [activeToolName, setActiveToolName] = useState('');
   const activeRequestId = useRef(0);
+  const isRestartingRef = useRef(false);
+
+  // Audio Device States
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [selectedMicId, setSelectedMicId] = useState(settings.selectedMicId || 'default');
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState(settings.selectedSpeakerId || 'default');
+
+  // Enumerate Devices
+  useEffect(() => {
+    const getDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAudioDevices(devices);
+      } catch (err) {
+        console.error('Error enumerating devices:', err);
+      }
+    };
+
+    getDevices();
+    navigator.mediaDevices.addEventListener('devicechange', getDevices);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+  }, []);
+
+  // Update settings when selection changes
+  useEffect(() => {
+    if (selectedMicId !== (settings.selectedMicId || 'default')) {
+      updateSetting('selectedMicId', selectedMicId);
+    }
+    if (selectedSpeakerId !== (settings.selectedSpeakerId || 'default')) {
+      updateSetting('selectedSpeakerId', selectedSpeakerId);
+    }
+  }, [selectedMicId, selectedSpeakerId]);
+
+  // Debug: Monitor AudioContext state
+
+  // Debug: Monitor AudioContext state
+  useEffect(() => {
+    if (audioContextRef.current) {
+      const ctx = audioContextRef.current;
+      const stateInterval = setInterval(() => {
+        if (ctx.state === 'suspended' && isRecording) {
+          console.warn('⚠️ AudioContext suspended while recording! Attempting resume...');
+          ctx.resume();
+        }
+      }, 2000);
+      return () => clearInterval(stateInterval);
+    }
+  }, [isRecording]);
+
+  /**
+   * Listener para Screenshot Capturado
+   */
+  useEffect(() => {
+    if (window.api && window.api.onScreenshotCaptured) {
+      const removeListener = window.api.onScreenshotCaptured((dataUrl) => {
+        console.log('📸 Screenshot received in App.jsx!');
+        setPendingImage(dataUrl);
+        // Opcional: focar no input
+      });
+      return () => removeListener();
+    }
+  }, []);
+
+  /**
+   * Listener para Screenshot Capturado
+   */
+
 
   const providerLabel = useMemo(() => formatStatus(settings.provider), [settings.provider]);
   const groqSelectValue = useMemo(() => {
@@ -639,30 +708,50 @@ export default function App() {
     // Start recording
     if (!window.api) return;
     try {
+      // DEBUG: List available devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(d => d.kind === 'audioinput');
+      console.log('🎤 Available Audio Inputs:', audioInputs.map(d => `${d.label} (${d.deviceId})`));
+
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       await audioContext.resume(); // Ensure context is running
       audioContextRef.current = audioContext;
 
-      // Create Analyser (Audio Mix & Visualization)
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
+      // Create Analysers (Dual Channels)
+      const micAnalyser = audioContext.createAnalyser();
+      micAnalyser.fftSize = 256;
+      const sysAnalyser = audioContext.createAnalyser();
+      sysAnalyser.fftSize = 256;
 
       // Create Destination (Recorder Input)
       const destination = audioContext.createMediaStreamDestination();
-
-      // Chain: Sources -> Analyser -> Destination
-      analyser.connect(destination);
 
       const sources = [];
 
       // 1. Microphone
       try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micConstraints = {
+          audio: {
+            deviceId: selectedMicId !== 'default' ? { exact: selectedMicId } : undefined,
+            // Optional: Add echoCancellation if needed, but usually default is fine
+            // echoCancellation: true,
+          }
+        };
+
+        const micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
         if (micStream.getAudioTracks().length > 0) {
-          console.log('Mic track obtained:', micStream.getAudioTracks()[0].label);
+          const track = micStream.getAudioTracks()[0];
+          console.log('🎤 Mic track obtained:', track.label, 'Enabled:', track.enabled, 'State:', track.readyState);
+
           const micSource = audioContext.createMediaStreamSource(micStream);
-          micSource.connect(analyser); // Mix into analyser
+          micSource.connect(micAnalyser); // Analyze Mic
+          micAnalyser.connect(destination); // Route to Dest
           sources.push(micStream);
+
+          // Debug: Check if Analyzer gets data
+          const checkData = new Uint8Array(256);
+          micAnalyser.getByteFrequencyData(checkData);
+          console.log('🎤 Initial Analyser Data Sum:', checkData.reduce((a, b) => a + b, 0));
         }
       } catch (micErr) {
         console.error('Mic access failed:', micErr);
@@ -670,15 +759,12 @@ export default function App() {
       }
 
       // 2. System Audio (if enabled)
-      // 2. System Audio (if enabled)
       if (includeSystemAudio) {
         try {
           const sourcesList = await window.api.getScreenSources();
           const sourceId = sourcesList[0]?.id;
 
           if (sourceId) {
-            console.log('Requesting system audio from source:', sourceId);
-
             const sysStream = await navigator.mediaDevices.getUserMedia({
               audio: {
                 mandatory: {
@@ -695,22 +781,16 @@ export default function App() {
             });
 
             const sysAudioTrack = sysStream.getAudioTracks()[0];
-
             if (sysAudioTrack) {
-              console.log('System audio track obtained (ChromeMediaSource):', sysAudioTrack.label);
               const sysAudioStream = new MediaStream([sysAudioTrack]);
               const sysSource = audioContext.createMediaStreamSource(sysAudioStream);
-              sysSource.connect(analyser);
+              sysSource.connect(sysAnalyser); // Analyze System
+              sysAnalyser.connect(destination); // Route to Dest
               sources.push(sysStream);
-            } else {
-              console.warn('System audio track missing despite success gUM');
             }
-          } else {
-            console.warn('No screen sources found.');
-            setAudioError('Nenhuma tela encontrada.');
           }
         } catch (sysErr) {
-          console.warn('System audio selection failed (Legacy Method):', sysErr);
+          console.warn('System audio selection failed:', sysErr);
           setAudioError('Falha ao capturar sistema.');
         }
       }
@@ -719,24 +799,30 @@ export default function App() {
         throw new Error('Nenhuma fonte de áudio disponível.');
       }
 
-      // Store streams to stop later
       audioStreamRef.current = new MediaStream(sources.flatMap(s => s.getTracks()));
 
       // Visualizer Loop
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      // Visualizer Loop
+      const dataArray = new Uint8Array(256);
       const updateLevel = () => {
         if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
-        analyser.getByteFrequencyData(dataArray);
-        const sum = dataArray.reduce((a, b) => a + b, 0);
-        const avg = sum / dataArray.length;
-        const normalized = Math.min(100, Math.round((avg / 64) * 100));
-        setAudioLevel(normalized);
 
-        if (normalized === 0 && isRecording) {
-          // Logic to detect silence could go here
-        } else {
-          setAudioError(null);
-        }
+        // Calc Mic Level
+        micAnalyser.getByteFrequencyData(dataArray);
+        const micSum = dataArray.reduce((a, b) => a + b, 0);
+        const micAvg = micSum / dataArray.length;
+        const micNorm = Math.min(100, Math.round((micAvg / 64) * 100));
+        setMicLevel(micNorm);
+
+        // Calc Sys Level
+        sysAnalyser.getByteFrequencyData(dataArray);
+        const sysSum = dataArray.reduce((a, b) => a + b, 0);
+        const sysAvg = sysSum / dataArray.length;
+        const sysNorm = Math.min(100, Math.round((sysAvg / 64) * 100));
+        setSysLevel(sysNorm);
+
+        // Legacy compatibility
+        setAudioLevel(Math.max(micNorm, sysNorm));
 
         requestAnimationFrame(updateLevel);
       };
@@ -804,26 +890,48 @@ export default function App() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Stop timer
-        if (transcriptionIntervalRef.current) {
-          clearInterval(transcriptionIntervalRef.current);
-          transcriptionIntervalRef.current = null;
+        console.log('MediaRecorder stopped. Restarting?', isRestartingRef.current);
+
+        // 1. Process what we have
+        await flushTranscription(isRestartingRef.current ? false : true);
+
+        // 2. Decide: Restart or Cleanup
+        if (isRestartingRef.current) {
+          isRestartingRef.current = false;
+          mediaRecorder.start(1000); // Start new segment with fresh header
+          console.log('MediaRecorder restarted for next batch.');
+        } else {
+          // Real stop (User clicked stop)
+          console.log('Stopping recording completely...');
+
+          // Stop timer
+          if (transcriptionIntervalRef.current) {
+            clearInterval(transcriptionIntervalRef.current);
+            transcriptionIntervalRef.current = null;
+          }
+
+          // Stop all tracks
+          if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach(track => {
+              try { track.stop(); } catch (e) { }
+            });
+            audioStreamRef.current = null;
+          }
+
+          if (audioContextRef.current) {
+            audioContextRef.current.close().catch(e => console.error(e));
+            audioContextRef.current = null;
+          }
+
+          // Final UI update
+          setStatusStage('thinking');
+          setInput("Resuma os pontos principais, tarefas e decisões dessa reunião.");
+
+          // Visualizer Reset
+          setAudioLevel(0);
+          setMicLevel(0);
+          setSysLevel(0);
         }
-
-        console.log('Recording stopped. Flushing remaining audio...');
-        await flushTranscription(true);
-
-        // Stop all tracks
-        if (audioStreamRef.current) {
-          audioStreamRef.current.getTracks().forEach(track => track.stop());
-        }
-
-        // Final UI update
-        setStatusStage('thinking');
-        setInput("Resuma os pontos principais, tarefas e decisões dessa reunião.");
-
-        // Visualizer
-        setAudioLevel(0);
       };
 
       // Request data every 1 second to ensure valid webm chunks
@@ -831,9 +939,12 @@ export default function App() {
 
       // Start periodic flush (every 2 minutes)
       // 2 minutes = 120000 ms
+      // Start periodic restart (every 30 seconds for valid headers)
       transcriptionIntervalRef.current = setInterval(() => {
-        flushTranscription(false);
-      }, 120000);
+        console.log('⏳ Interval: Restarting recorder for fresh header...');
+        isRestartingRef.current = true;
+        mediaRecorder.stop(); // This triggers onstop, which handles flush + restart
+      }, 30000);
 
       setIsRecording(true);
       if (window.api && window.api.sendRecordingStatus) {
@@ -869,7 +980,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.12</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.13</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -976,11 +1087,10 @@ export default function App() {
 
         <footer className="relative shrink-0 border-t border-white/10 bg-slate-950/50 px-4 py-3">
           {transcriptionPreview && (
-            <div className="absolute bottom-full left-0 right-0 mx-4 mb-2 overflow-hidden rounded-xl border border-emerald-500/30 bg-slate-900/95 shadow-2xl backdrop-blur animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex items-center justify-between border-b border-white/10 bg-emerald-500/10 px-3 py-2">
-                <span className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Transcrição Detectada
+            <div className="mb-2 w-full rounded-2xl border border-dashed border-white/20 bg-white/5 p-3 backdrop-blur-sm">
+              <div className="mb-2 flex items-center justify-between border-b border-white/10 pb-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">
+                  Transcrição em Andamento...
                 </span>
                 <button
                   onClick={() => setTranscriptionPreview(null)}
@@ -1044,18 +1154,26 @@ export default function App() {
               </div>
             </button>
             {isRecording && (
-              <div className="mx-2 flex flex-col items-center">
-                <div className="h-10 w-1 rounded bg-white/10">
+              <div className="mx-2 flex gap-1 h-10 items-end">
+                {/* Microfone - Vermelho */}
+                <div className="w-1.5 rounded-full bg-slate-800/50 overflow-hidden relative h-full">
                   <div
-                    className="w-full rounded bg-emerald-400 transition-all duration-75 ease-out"
-                    style={{
-                      height: `${Math.min(100, Math.max(5, audioLevel))}%`,
-                      marginTop: `${100 - Math.min(100, Math.max(5, audioLevel))}%`
-                    }}
+                    className="absolute bottom-0 w-full rounded-full bg-red-500 transition-all duration-75 ease-out"
+                    style={{ height: `${Math.min(100, Math.max(5, micLevel))}%` }}
+                    title="Microfone"
                   />
                 </div>
-                {audioLevel === 0 && (
-                  <span className="absolute bottom-16 rounded bg-red-500/80 px-2 py-1 text-[10px] text-white backdrop-blur">
+                {/* Sistema - Verde */}
+                <div className="w-1.5 rounded-full bg-slate-800/50 overflow-hidden relative h-full">
+                  <div
+                    className="absolute bottom-0 w-full rounded-full bg-emerald-400 transition-all duration-75 ease-out"
+                    style={{ height: `${Math.min(100, Math.max(5, sysLevel))}%` }}
+                    title="Sistema"
+                  />
+                </div>
+
+                {micLevel === 0 && sysLevel === 0 && (
+                  <span className="absolute bottom-16 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-amber-500/80 px-2 py-1 text-[10px] text-white backdrop-blur animate-pulse">
                     Sem Áudio?
                   </span>
                 )}
@@ -1218,6 +1336,42 @@ export default function App() {
                   </div>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Microfone
+                  </label>
+                  <select
+                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    value={selectedMicId}
+                    onChange={(e) => setSelectedMicId(e.target.value)}
+                  >
+                    <option value="default">Padrão do Sistema</option>
+                    {audioDevices
+                      .filter((d) => d.kind === 'audioinput')
+                      .map((device) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Microfone ${device.deviceId.slice(0, 5)}...`}
+                        </option>
+                      ))}
+                  </select>
+
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Saída de Som
+                  </label>
+                  <select
+                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    value={selectedSpeakerId}
+                    onChange={(e) => setSelectedSpeakerId(e.target.value)}
+                  >
+                    <option value="default">Padrão do Sistema</option>
+                    {audioDevices
+                      .filter((d) => d.kind === 'audiooutput')
+                      .map((device) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Alto-falante ${device.deviceId.slice(0, 5)}...`}
+                        </option>
+                      ))}
+                  </select>
+
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                     Opacidade da Janela
                   </label>
                   <div className="mb-4 flex items-center gap-3">
@@ -1239,30 +1393,6 @@ export default function App() {
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] uppercase tracking-widest text-slate-200/80">
                       {opacityLabel}
                     </span>
-                  </div>
-
-                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Ferramenta de Banco de Dados
-                  </label>
-                  <div className="mb-4 flex gap-2">
-                    <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.dbToolEnabled
-                        ? 'border-emerald-300/30 bg-emerald-400/15'
-                        : 'border-white/10 bg-white/5'
-                        }`}
-                      onClick={() => updateSetting('dbToolEnabled', true)}
-                    >
-                      Ativado
-                    </button>
-                    <button
-                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${!settings.dbToolEnabled
-                        ? 'border-emerald-300/30 bg-emerald-400/15'
-                        : 'border-white/10 bg-white/5'
-                        }`}
-                      onClick={() => updateSetting('dbToolEnabled', false)}
-                    >
-                      Desativado
-                    </button>
                   </div>
 
                   <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
@@ -1658,6 +1788,30 @@ export default function App() {
                   <p className="text-[11px] text-slate-400">
                     Chave de API necessária para acessar recursos de banco de dados vetorial.
                   </p>
+
+                  <label className="mb-2 mt-4 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Ferramenta de Banco de Dados
+                  </label>
+                  <div className="mb-4 flex gap-2">
+                    <button
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${settings.dbToolEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
+                      onClick={() => updateSetting('dbToolEnabled', true)}
+                    >
+                      Ativado
+                    </button>
+                    <button
+                      className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-widest transition ${!settings.dbToolEnabled
+                        ? 'border-emerald-300/30 bg-emerald-400/15'
+                        : 'border-white/10 bg-white/5'
+                        }`}
+                      onClick={() => updateSetting('dbToolEnabled', false)}
+                    >
+                      Desativado
+                    </button>
+                  </div>
                 </div>
               )}
 
