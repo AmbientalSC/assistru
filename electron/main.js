@@ -86,10 +86,10 @@ Protocolo de processamento:
 1) Filtro semantico: mantenha itens que correspondam a intencao, descarte o resto.
 2) Filtro geografico: agrupe itens validos por cidade.
 
-Formato de resposta:
+Formato de resposta (MUITO IMPORTANTE: USE LISTA COMPACTA, SEM LINHAS EM BRANCO ENTRE OS ITENS.):
 - Capitalize nomes.
 - Para cada cidade:
-  [Cidade]
+  ### [Cidade]
   - Item: [Nome do material]
   - Destino: [Encaminhamento]
   - Obs: [Obs]
