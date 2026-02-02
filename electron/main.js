@@ -263,6 +263,16 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+
+  autoUpdater.on('update-downloaded', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-downloaded');
+    }
+  });
+
+  ipcMain.handle('update:install', () => {
+    autoUpdater.quitAndInstall();
+  });
 });
 
 app.on('will-quit', () => {

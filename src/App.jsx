@@ -13,7 +13,8 @@ import {
   Power,
   Square,
   Monitor,
-  Mic
+  Mic,
+  AlertTriangle
 } from 'lucide-react';
 
 const defaultSettings = {
@@ -100,6 +101,7 @@ export default function App() {
   const [pendingImage, setPendingImage] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
   const [transcriptionPreview, setTranscriptionPreview] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -293,8 +295,20 @@ export default function App() {
       }
     });
 
+    // Listen for updates
+    let removeUpdateListener;
+    if (window.api && window.api.onUpdateDownloaded) {
+      removeUpdateListener = window.api.onUpdateDownloaded(() => {
+        setUpdateAvailable(true);
+        // Optional: show toast
+      });
+    }
+
     return () => {
       active = false;
+      if (removeUpdateListener) {
+        removeUpdateListener();
+      }
     };
   }, []);
 
@@ -768,15 +782,23 @@ export default function App() {
           <div className="flex items-center gap-3">
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
-              <p className="text-sm font-semibold tracking-wide">
-                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.7</span>
-              </p>
+              <h1 className="text-sm font-semibold tracking-wide text-slate-100">
+                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.8</span>
+              </h1>
+              {updateAvailable && (
+                <button
+                  onClick={() => window.api.installUpdate()}
+                  className="ml-2 animate-pulse text-amber-500 hover:text-amber-400"
+                  title="Nova atualização disponível! Clique para instalar."
+                >
+                  <AlertTriangle size={16} />
+                </button>
+              )}
               <p className="text-[11px] uppercase text-slate-300/70">{providerLabel} agente</p>
             </div>
           </div>
           <div className="no-drag flex items-center gap-2">
             <span className="flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[10px] uppercase tracking-widest text-slate-200/80">
-              {settings.provider === 'ollama' ? <Cpu size={12} /> : <Cloud size={12} />}
               {settings.provider}
             </span>
             <button
