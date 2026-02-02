@@ -769,7 +769,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <p className="text-sm font-semibold tracking-wide">
-                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.6</span>
+                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.7</span>
               </p>
               <p className="text-[11px] uppercase text-slate-300/70">{providerLabel} agente</p>
             </div>
