@@ -102,6 +102,9 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [isUpdateReady, setIsUpdateReady] = useState(false);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
   const [transcriptionPreview, setTranscriptionPreview] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -295,20 +298,31 @@ export default function App() {
       }
     });
 
-    // Listen for updates
+    // Listen for updates and progress
     let removeUpdateListener;
-    if (window.api && window.api.onUpdateDownloaded) {
-      removeUpdateListener = window.api.onUpdateDownloaded(() => {
-        setUpdateAvailable(true);
-        // Optional: show toast
-      });
+    let removeProgressListener;
+
+    if (window.api) {
+      if (window.api.onUpdateDownloaded) {
+        removeUpdateListener = window.api.onUpdateDownloaded(() => {
+          setUpdateAvailable(true);
+          setIsUpdateReady(true);
+          setShowUpdateModal(true);
+        });
+      }
+
+      if (window.api.onDownloadProgress) {
+        removeProgressListener = window.api.onDownloadProgress((progressObj) => {
+          setDownloadProgress(progressObj);
+          setShowUpdateModal(true);
+        });
+      }
     }
 
     return () => {
       active = false;
-      if (removeUpdateListener) {
-        removeUpdateListener();
-      }
+      if (removeUpdateListener) removeUpdateListener();
+      if (removeProgressListener) removeProgressListener();
     };
   }, []);
 
@@ -783,7 +797,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.9</span>
+                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.10</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1019,6 +1033,58 @@ export default function App() {
           )}
         </footer>
       </div>
+
+      {showUpdateModal && (
+        <div className="no-drag absolute inset-0 z-30 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-[85%] max-w-sm rounded-2xl border border-white/15 bg-slate-900/95 p-6 text-center shadow-glass ring-1 ring-white/10">
+            {!isUpdateReady ? (
+              <div className="flex flex-col items-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/10">
+                  <Cloud className="animate-bounce text-emerald-400" size={24} />
+                </div>
+                <h2 className="mb-2 text-base font-semibold text-slate-100">Baixando Atualização...</h2>
+                <div className="mb-1 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full bg-emerald-400 transition-all duration-300 ease-out"
+                    style={{ width: `${downloadProgress?.percent || 0}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400">{Math.round(downloadProgress?.percent || 0)}% completo</p>
+                <button
+                  className="mt-4 rounded-lg border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+                  onClick={() => setShowUpdateModal(false)}
+                >
+                  Ocultar (Baixar em 2º plano)
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/10">
+                  <AlertTriangle className="text-emerald-400" size={24} />
+                </div>
+                <h2 className="mb-2 text-base font-semibold text-slate-100">Atualização Pronta!</h2>
+                <p className="mb-6 text-sm text-slate-400">
+                  A nova versão foi baixada e está pronta para ser instalada.
+                </p>
+                <div className="flex w-full gap-3">
+                  <button
+                    onClick={() => setShowUpdateModal(false)}
+                    className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-xs font-medium text-slate-300 transition hover:bg-white/10"
+                  >
+                    Agora não
+                  </button>
+                  <button
+                    onClick={() => window.api.installUpdate()}
+                    className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-medium text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400"
+                  >
+                    Reiniciar e Atualizar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showSettings && (
         <div className="no-drag absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
