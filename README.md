@@ -219,7 +219,7 @@ Copyright © 2026 Ambiental Limpeza Urbana LTDA
 
 Para dúvidas, problemas ou sugestões:
 
-- 📧 Email: [suporte@ambiental.com](mailto:suporte@ambiental.com)
+- 📧 Email: [chamados.ti@ambiental.sc](mailto:chamados.ti@ambiental.sc)
 - 🐛 Issues: [GitHub Issues](https://github.com/AmbientalSC/assistru/issues)
 
 ---
