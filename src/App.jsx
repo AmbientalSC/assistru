@@ -783,7 +783,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.8</span>
+                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.9</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1022,7 +1022,7 @@ export default function App() {
 
       {showSettings && (
         <div className="no-drag absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-[90%] max-w-sm rounded-2xl border border-white/15 bg-slate-900/90 p-4 text-sm text-slate-100 shadow-glass">
+          <div className="w-[95%] max-w-xl rounded-2xl border border-white/15 bg-slate-900/90 p-5 text-sm text-slate-100 shadow-glass">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Configurações</h2>
               <button
@@ -1033,14 +1033,15 @@ export default function App() {
                 <X size={14} />
               </button>
             </div>
-            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-3 text-[11px] uppercase tracking-widest text-slate-300/80">
+            <div className="flex flex-wrap gap-2 pb-4 text-[11px] uppercase tracking-widest text-slate-300/80">
               {[
                 { key: 'general', label: 'Geral' },
                 { key: 'ollama', label: 'Ollama' },
                 { key: 'groq', label: 'Groq' },
                 { key: 'openai', label: 'OpenAI' },
                 { key: 'openrouter', label: 'OpenRouter' },
-                { key: 'gemini', label: 'Gemini' }
+                { key: 'gemini', label: 'Gemini' },
+                { key: 'supabase', label: 'Supabase' }
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -1187,17 +1188,6 @@ export default function App() {
                   <p className="mt-2 text-[10px] text-slate-400 text-center">
                     Clique e pressione a combinação de teclas desejada para alterar o atalho de alternância.
                   </p>
-
-                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
-                    Supabase API Key
-                  </label>
-                  <input
-                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                    type="password"
-                    placeholder="sbp_..."
-                    value={settings.supabaseApiKey || ''}
-                    onChange={(event) => updateSetting('supabaseApiKey', event.target.value)}
-                  />
                 </div>
               )}
 
@@ -1510,6 +1500,25 @@ export default function App() {
                   {geminiModelsError && (
                     <p className="mt-2 text-[11px] text-amber-200/80">{geminiModelsError}</p>
                   )}
+                </div>
+              )}
+
+
+              {settingsTab === 'supabase' && (
+                <div>
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Supabase API Key
+                  </label>
+                  <input
+                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    type="password"
+                    placeholder="sbp_..."
+                    value={settings.supabaseApiKey || ''}
+                    onChange={(event) => updateSetting('supabaseApiKey', event.target.value)}
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    Chave de API necessária para acessar recursos de banco de dados vetorial.
+                  </p>
                 </div>
               )}
             </div>
