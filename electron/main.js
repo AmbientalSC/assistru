@@ -49,6 +49,7 @@ if (!gotTheLock) {
       provider: 'ollama',
       groqApiKey: '',
       groqModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      groqVisionModel: 'llama-3.2-11b-vision-preview',
       openaiApiKey: '',
       openaiModel: 'gpt-4o-mini',
       openrouterApiKey: '',

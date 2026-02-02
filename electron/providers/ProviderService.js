@@ -85,7 +85,8 @@ class ProviderService {
   async chatVisionDbPipeline(messages, provider, signal, onStatus) {
     const notify = typeof onStatus === 'function' ? onStatus : () => { };
     const userMessage = [...messages].reverse().find((msg) => msg.role === 'user') || {};
-    const imageMessage = messages.find((msg) => msg.imageDataUrl) || userMessage;
+    // FIX: Search in reverse to find the LATEST image, not the first one in history
+    const imageMessage = [...messages].reverse().find((msg) => msg.imageDataUrl) || userMessage;
     const imageDataUrl = imageMessage?.imageDataUrl;
 
     const visionPrompt = {
@@ -101,6 +102,11 @@ class ProviderService {
     };
 
     notify({ stage: 'thinking' });
+    console.log('[Vision] Identifying item...');
+    console.log('[Vision] User Content:', visionUser.content);
+    console.log('[Vision] Image Data Length:', visionUser.imageDataUrl ? visionUser.imageDataUrl.length : 0);
+    console.log('[Vision] Image Data Preview:', visionUser.imageDataUrl ? visionUser.imageDataUrl.substring(0, 50) : 'None');
+
     const visionResponse = await this.requestProvider(
       provider,
       [visionPrompt, visionUser],
@@ -303,18 +309,21 @@ class ProviderService {
       throw new Error('Groq API key is missing. Add it in Settings.');
     }
 
-    const userModel = this.store.get('groqModel', 'meta-llama/llama-4-scout-17b-16e-instruct');
     const hasImages = messages.some((m) => Boolean(m.imageDataUrl));
+    let userModel = this.store.get('groqModel', 'meta-llama/llama-4-scout-17b-16e-instruct');
+
+    if (hasImages) {
+      userModel = this.store.get('groqVisionModel', 'llama-3.2-11b-vision-preview');
+    }
 
     const textFallbacks = [
-      'llama-3.3-70b-versatile',
       'llama-3.1-8b-instant',
-      'mixtral-8x7b-32768'
+      'openai/gpt-oss-120b',
     ];
 
     const visionFallbacks = [
-      'llama-3.2-90b-vision-preview',
-      'llama-3.2-11b-vision-preview'
+      'meta-llama/llama-4-maverick-17b-128e-instruct',
+      'meta-llama/llama-prompt-guard-2-22m'
     ];
 
     const fallbackModels = hasImages ? visionFallbacks : textFallbacks;
@@ -783,7 +792,7 @@ class ProviderService {
 
   async requestTranscribe(provider, audioBuffer, signal) {
     let endpoint = 'https://api.groq.com/openai/v1/audio/transcriptions';
-    let model = 'whisper-large-v3';
+    let model = 'whisper-large-v3-turbo';
     let apiKey = this.store.get('groqApiKey');
 
     if (provider === 'openai') {

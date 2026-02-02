@@ -980,7 +980,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.13</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.14</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1649,6 +1649,18 @@ export default function App() {
                     value={settings.groqModel || ''}
                     onChange={(event) => updateSetting('groqModel', event.target.value)}
                   />
+
+                  <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                    Modelo de Visão (Imagens)
+                  </label>
+                  <select
+                    className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    value={settings.groqVisionModel || 'llama-3.2-11b-vision-preview'}
+                    onChange={(event) => updateSetting('groqVisionModel', event.target.value)}
+                  >
+                    <option value="meta-llama/llama-4-scout-17b-16e-instruct" className="bg-slate-900">Llama 4 Scout 17B (Vision)</option>
+                    <option value="meta-llama/llama-4-maverick-17b-128e-instruct" className="bg-slate-900">Llama 4 Maverick 17B (Vision)</option>
+                  </select>
                 </div>
               )}
 
@@ -1906,8 +1918,9 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
-    </div>
+    </div >
   );
 }
