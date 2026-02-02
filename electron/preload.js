@@ -11,8 +11,11 @@ contextBridge.exposeInMainWorld('api', {
   listOllamaLocal: () => ipcRenderer.invoke('ollama:listLocal'),
   listOllamaRemote: () => ipcRenderer.invoke('ollama:listRemote'),
   listGeminiModels: () => ipcRenderer.invoke('gemini:listModels'),
+  transcribe: (audioBuffer) => ipcRenderer.invoke('provider:transcribe', audioBuffer),
+  getScreenSources: () => ipcRenderer.invoke('desktop:getSources'),
   setWindowOpacity: (value) => ipcRenderer.invoke('window:setOpacity', value),
   setShortcutEnabled: (enabled) => ipcRenderer.invoke('shortcut:setEnabled', enabled),
+  sendRecordingStatus: (isRecording) => ipcRenderer.send('renderer:recording-status', isRecording),
   onStatus: (callback) => {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('provider:status', handler);

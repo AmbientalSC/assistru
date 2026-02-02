@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, nativeImage, session } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const screenshot = require('screenshot-desktop');
@@ -93,7 +93,7 @@ const createWindow = () => {
 const createShortcutWindow = () => {
   if (shortcutWindow) return;
   const primary = screen.getPrimaryDisplay();
-  const size = 60;
+  const size = 80;
   const padding = 24;
   const x = Math.round(primary.workArea.x + primary.workArea.width - size - padding);
   const y = Math.round(primary.workArea.y + padding);
@@ -208,6 +208,43 @@ const finishCapture = (dataUrl) => {
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.aether.chat');
+
+  // Permission Handling for Media Access
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'accessibility-support', 'fullscreen', 'notifications'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true); // Approve
+    } else {
+      console.warn(`Permission denied: ${permission}`);
+      callback(false);
+    }
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'media') {
+      return true;
+    }
+    return false;
+  });
+
+  ipcMain.handle('desktop:getSources', async () => {
+    const { desktopCapturer } = require('electron');
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    // Serialize to simple objects to avoid IPC issues
+    return sources.map(s => ({
+      id: s.id,
+      name: s.name,
+      // thumbnail: s.thumbnail.toDataURL() // We don't strictly need thumbnail for now, keep payload small
+    }));
+  });
+
+  // Relay recording status to shortcut window
+  ipcMain.on('renderer:recording-status', (event, isRecording) => {
+    if (shortcutWindow && !shortcutWindow.isDestroyed()) {
+      shortcutWindow.webContents.send('main:recording-status', isRecording);
+    }
+  });
+
   createWindow();
   if (store.get('floatingShortcutEnabled', true)) {
     createShortcutWindow();
@@ -329,6 +366,16 @@ ipcMain.handle('provider:chat', async (event, messages) => {
     if (activeChatController === controller) {
       activeChatController = null;
     }
+  }
+});
+
+ipcMain.handle('provider:transcribe', async (event, audioBuffer) => {
+  try {
+    // IPC sends Uint8Array/Buffer. ProviderService expects Buffer or compatible.
+    return await providerService.transcribe(audioBuffer);
+  } catch (error) {
+    console.error('Transcription error:', error);
+    throw error;
   }
 });
 

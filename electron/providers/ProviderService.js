@@ -104,7 +104,7 @@ class ProviderService {
   }
 
   async chatVisionDbPipeline(messages, provider, signal, onStatus) {
-    const notify = typeof onStatus === 'function' ? onStatus : () => {};
+    const notify = typeof onStatus === 'function' ? onStatus : () => { };
     const userMessage = [...messages].reverse().find((msg) => msg.role === 'user') || {};
     const imageMessage = messages.find((msg) => msg.imageDataUrl) || userMessage;
     const imageDataUrl = imageMessage?.imageDataUrl;
@@ -147,9 +147,8 @@ class ProviderService {
       { role: 'system', content: finalSystemPrompt },
       {
         role: 'user',
-        content: `Termo identificado: ${term}\nPergunta original: ${
-          userMessage?.content || '-'
-        }\nJSON:\n${JSON.stringify(toolResult)}`
+        content: `Termo identificado: ${term}\nPergunta original: ${userMessage?.content || '-'
+          }\nJSON:\n${JSON.stringify(toolResult)}`
       }
     ];
 
@@ -166,7 +165,7 @@ class ProviderService {
   }
 
   async chatTextDbPipeline(messages, provider, signal, onStatus) {
-    const notify = typeof onStatus === 'function' ? onStatus : () => {};
+    const notify = typeof onStatus === 'function' ? onStatus : () => { };
     const userMessage = [...messages].reverse().find((msg) => msg.role === 'user') || {};
     const prompt = {
       role: 'system',
@@ -203,9 +202,8 @@ class ProviderService {
       { role: 'system', content: finalSystemPrompt },
       {
         role: 'user',
-        content: `Termo identificado: ${term}\nPergunta original: ${
-          userMessage?.content || '-'
-        }\nJSON:\n${JSON.stringify(toolResult)}`
+        content: `Termo identificado: ${term}\nPergunta original: ${userMessage?.content || '-'
+          }\nJSON:\n${JSON.stringify(toolResult)}`
       }
     ];
 
@@ -283,7 +281,7 @@ class ProviderService {
   }
 
   async runToolLoop({ provider, messages, signal, onStatus }) {
-    const notify = typeof onStatus === 'function' ? onStatus : () => {};
+    const notify = typeof onStatus === 'function' ? onStatus : () => { };
     let conversation = [...messages];
     for (let step = 0; step < 3; step += 1) {
       notify({ stage: 'thinking' });
@@ -326,42 +324,101 @@ class ProviderService {
       throw new Error('Groq API key is missing. Add it in Settings.');
     }
 
-    const groqModel = this.store.get('groqModel', 'meta-llama/llama-4-scout-17b-16e-instruct');
-    const formattedMessages = this.formatGroqMessages(messages);
+    const userModel = this.store.get('groqModel', 'meta-llama/llama-4-scout-17b-16e-instruct');
+    const hasImages = messages.some((m) => Boolean(m.imageDataUrl));
 
-    const body = {
-      model: groqModel,
-      messages: formattedMessages,
-      temperature: 0.2
-    };
-    if (tools && tools.length > 0) {
-      body.tools = tools;
-    }
+    const textFallbacks = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768'
+    ];
 
-    const response = await fetch(GROQ_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      signal,
-      body: JSON.stringify(body)
+    const visionFallbacks = [
+      'llama-3.2-90b-vision-preview',
+      'llama-3.2-11b-vision-preview'
+    ];
+
+    const fallbackModels = hasImages ? visionFallbacks : textFallbacks;
+
+    // Create unique list of models to try: user's choice first, then fallbacks
+    const modelsToTry = [userModel, ...fallbackModels].filter((value, index, self) => {
+      return self.indexOf(value) === index;
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      let message = data?.error?.message || data?.error || 'Groq request failed.';
-      if (
-        messages.some((messageItem) => Boolean(messageItem.imageDataUrl)) &&
-        typeof message === 'string' &&
-        message.includes('content must be a string')
-      ) {
-        message = `${message} (Your selected Groq model may be text-only.)`;
+    let lastError = null;
+
+    for (const model of modelsToTry) {
+      const formattedMessages = this.formatGroqMessages(messages);
+      const body = {
+        model,
+        messages: formattedMessages,
+        temperature: 0.2
+      };
+      if (tools && tools.length > 0) {
+        body.tools = tools;
       }
-      throw new Error(message);
+
+      try {
+        const response = await fetch(GROQ_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          signal,
+          body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          let message = data?.error?.message || data?.error || 'Groq request failed.';
+
+          if (typeof message === 'string' && (
+            message.includes('over capacity') ||
+            message.includes('rate limit') ||
+            message.includes('too many requests')
+          )) {
+            console.warn(`[Groq] Model ${model} unavailable: ${message}. Trying next fallback...`);
+            lastError = new Error(`Groq ${model}: ${message}`);
+            continue;
+          }
+
+          if (
+            hasImages &&
+            typeof message === 'string' &&
+            message.includes('content must be a string')
+          ) {
+            console.warn(`[Groq] Model ${model} does not support images. Trying next...`);
+            lastError = new Error(`${message} (Model ${model} does not support images)`);
+            continue;
+          }
+
+          throw new Error(message);
+        }
+
+        return data?.choices?.[0]?.message || null;
+
+      } catch (error) {
+        if (signal?.aborted) throw error;
+
+        if (lastError && error.message === lastError.message) {
+          continue;
+        }
+
+        if (
+          error.message.includes('over capacity') ||
+          error.message.includes('rate limit') ||
+          (hasImages && error.message.includes('content must be a string'))
+        ) {
+          lastError = error;
+          continue;
+        }
+
+        throw error;
+      }
     }
 
-    return data?.choices?.[0]?.message || null;
+    throw lastError || new Error('Groq request failed after trying available models.');
   }
 
   async requestOpenAI(messages, tools, signal) {
@@ -642,7 +699,7 @@ class ProviderService {
   }
 
   async handleToolCalls(toolCalls, onStatus) {
-    const notify = typeof onStatus === 'function' ? onStatus : () => {};
+    const notify = typeof onStatus === 'function' ? onStatus : () => { };
     const results = [];
     for (const call of toolCalls) {
       const name = call?.function?.name || call?.name;
@@ -732,10 +789,101 @@ class ProviderService {
     };
   }
 
+  async transcribe(audioBuffer, signal) {
+    // Prioritize Groq for transcription if available (faster/cheaper)
+    const groqKey = this.store.get('groqApiKey');
+    const openaiKey = this.store.get('openaiApiKey');
+
+    let provider = 'groq';
+    if (!groqKey && openaiKey) {
+      provider = 'openai';
+    }
+
+    return this.requestTranscribe(provider, audioBuffer, signal);
+  }
+
+  async requestTranscribe(provider, audioBuffer, signal) {
+    let endpoint = 'https://api.groq.com/openai/v1/audio/transcriptions';
+    let model = 'whisper-large-v3-turbo';
+    let apiKey = this.store.get('groqApiKey');
+
+    if (provider === 'openai') {
+      endpoint = 'https://api.openai.com/v1/audio/transcriptions';
+      model = 'whisper-1';
+      apiKey = this.store.get('openaiApiKey');
+    }
+
+    if (!apiKey) {
+      throw new Error(`API Key for ${provider} is missing. Cannot transcribe.`);
+    }
+
+    // In Node 20/Electron, FormData is globally available.
+    // We need to create a Blob from the buffer to make FormData happy with filename.
+    const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append('file', blob, 'recording.webm');
+    formData.append('model', model);
+    // Force language to Portuguese to avoid "Thank you" hallucinations on silence
+    formData.append('language', 'pt');
+    // Prompt guides the model style and context to avoid hallucinations
+    formData.append('prompt', 'Transcreva o áudio desta reunião ou conversa com clareza. Ignore silêncio e ruídos de fundo.');
+    formData.append('temperature', '0.2');
+    formData.append('response_format', 'json');
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: formData,
+      signal
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      const message = data?.error?.message || data?.error || 'Transcription failed.';
+      throw new Error(message);
+    }
+
+    const rawText = data?.text || '';
+    return this.cleanupTranscription(rawText);
+  }
+
+  cleanupTranscription(text) {
+    if (!text) return '';
+
+    let clean = text;
+
+    // 1. Remove common Whisper hallucinations (subtitle credits) via Regex
+    // Matches "Legenda...", "Legendas...", "Subtitle...", "Translated by..." case insensitive
+    // It removes the entire matched phrase/sentence if it looks like a credit
+    const creditPatterns = [
+      /Legenda(s)?\s+(por|de|pelo|pela)?\s*[:\.]?\s*[A-Z][a-z]+/gi, // Legenda por [Nome]
+      /Legenda\s+Adriana\s+Zanotto/gi, // Specific common one
+      /Sous-titres\s+par/gi,
+      /Amara\.org/gi,
+      /Obrigado\./gi, // Common hallucination on silence
+      /Thank\s+you[\.,!]?/gi,
+      /Bye[\.,!]?/gi,
+      /Ignore\s+silêncio\s+e\s+ruídos\s+de\s+fundo[\.,!]?/gi,
+      /Transcreva\s+o\s+áudio[\.,!]?/gi
+    ];
+
+    for (const pattern of creditPatterns) {
+      clean = clean.replace(pattern, '');
+    }
+
+    // 2. Remove repetitive loops (e.g. "Text Text Text")
+    const repeatRegex = /(.{10,})\1+/g;
+    clean = clean.replace(repeatRegex, '$1');
+
+    return clean.trim();
+  }
+
   normalizeOllamaEndpoint(raw) {
     if (!raw) return 'http://localhost:11434/api/chat';
     if (raw.includes('/api/chat')) return raw;
-    return `${raw.replace(/\/$/, '')}/api/chat`;
+    return `${raw.replace(/\/$/, '')} /api/chat`;
   }
 
   normalizeGeminiModel(raw) {
@@ -759,7 +907,7 @@ class ProviderService {
       effectiveSystemInstruction = '';
       const injected = {
         role: 'user',
-        content: `INSTRUCOES DO SISTEMA:\n${systemInstruction}`
+        content: `INSTRUCOES DO SISTEMA: \n${systemInstruction} `
       };
       contentMessages = [injected, ...messages];
     }

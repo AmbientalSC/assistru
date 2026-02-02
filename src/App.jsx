@@ -10,7 +10,10 @@ import {
   X,
   RefreshCcw,
   Minus,
-  Power
+  Power,
+  Square,
+  Monitor,
+  Mic
 } from 'lucide-react';
 
 const defaultSettings = {
@@ -96,6 +99,17 @@ export default function App() {
   const [input, setInput] = useState('');
   const [pendingImage, setPendingImage] = useState(null);
   const [isSending, setIsSending] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
+  const [transcriptionPreview, setTranscriptionPreview] = useState(null);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [audioError, setAudioError] = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const audioContextRef = useRef(null);
+
+  const audioStreamRef = useRef(null);
+  const batchChunksRef = useRef([]);
+  const transcriptionIntervalRef = useRef(null);
   const [settings, setSettings] = useState(defaultSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('general');
@@ -408,7 +422,14 @@ export default function App() {
   };
 
   const handleSend = async () => {
-    if ((!input || input.trim().length === 0) && !pendingImage) return;
+    let finalInput = input.trim();
+
+    // Append transcription context if present
+    if (transcriptionPreview) {
+      finalInput = `[Transcrição do Áudio Original]:\n${transcriptionPreview}\n\n[Solicitação do Usuário]:\n${finalInput}`;
+    }
+
+    if ((!finalInput || finalInput.length === 0) && !pendingImage) return;
     if (!window.api) return;
 
     const requestId = activeRequestId.current + 1;
@@ -416,9 +437,12 @@ export default function App() {
 
     const userMessage = {
       role: 'user',
-      content: input.trim(),
+      content: finalInput,
       imageDataUrl: pendingImage
     };
+
+    // Clear preview after sending
+    setTranscriptionPreview(null);
 
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
@@ -487,6 +511,247 @@ export default function App() {
       window.api.closeWindow();
     }
   };
+
+  const handleMicrophoneClick = async () => {
+    if (isRecording) {
+      // Stop recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+        if (window.api && window.api.sendRecordingStatus) {
+          window.api.sendRecordingStatus(false);
+        }
+        // Interval is cleared in onstop
+      }
+      // Close streams and context
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(t => t.stop());
+        audioStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      setAudioLevel(0);
+      return;
+    }
+
+    // Start recording
+    if (!window.api) return;
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume(); // Ensure context is running
+      audioContextRef.current = audioContext;
+
+      // Create Analyser (Audio Mix & Visualization)
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+
+      // Create Destination (Recorder Input)
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Chain: Sources -> Analyser -> Destination
+      analyser.connect(destination);
+
+      const sources = [];
+
+      // 1. Microphone
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (micStream.getAudioTracks().length > 0) {
+          console.log('Mic track obtained:', micStream.getAudioTracks()[0].label);
+          const micSource = audioContext.createMediaStreamSource(micStream);
+          micSource.connect(analyser); // Mix into analyser
+          sources.push(micStream);
+        }
+      } catch (micErr) {
+        console.error('Mic access failed:', micErr);
+        throw new Error('Microfone inacessível.');
+      }
+
+      // 2. System Audio (if enabled)
+      // 2. System Audio (if enabled)
+      if (includeSystemAudio) {
+        try {
+          const sourcesList = await window.api.getScreenSources();
+          const sourceId = sourcesList[0]?.id;
+
+          if (sourceId) {
+            console.log('Requesting system audio from source:', sourceId);
+
+            const sysStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: sourceId
+                }
+              },
+              video: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: sourceId
+                }
+              }
+            });
+
+            const sysAudioTrack = sysStream.getAudioTracks()[0];
+
+            if (sysAudioTrack) {
+              console.log('System audio track obtained (ChromeMediaSource):', sysAudioTrack.label);
+              const sysAudioStream = new MediaStream([sysAudioTrack]);
+              const sysSource = audioContext.createMediaStreamSource(sysAudioStream);
+              sysSource.connect(analyser);
+              sources.push(sysStream);
+            } else {
+              console.warn('System audio track missing despite success gUM');
+            }
+          } else {
+            console.warn('No screen sources found.');
+            setAudioError('Nenhuma tela encontrada.');
+          }
+        } catch (sysErr) {
+          console.warn('System audio selection failed (Legacy Method):', sysErr);
+          setAudioError('Falha ao capturar sistema.');
+        }
+      }
+
+      if (sources.length === 0) {
+        throw new Error('Nenhuma fonte de áudio disponível.');
+      }
+
+      // Store streams to stop later
+      audioStreamRef.current = new MediaStream(sources.flatMap(s => s.getTracks()));
+
+      // Visualizer Loop
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevel = () => {
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+        analyser.getByteFrequencyData(dataArray);
+        const sum = dataArray.reduce((a, b) => a + b, 0);
+        const avg = sum / dataArray.length;
+        const normalized = Math.min(100, Math.round((avg / 64) * 100));
+        setAudioLevel(normalized);
+
+        if (normalized === 0 && isRecording) {
+          // Logic to detect silence could go here
+        } else {
+          setAudioError(null);
+        }
+
+        requestAnimationFrame(updateLevel);
+      };
+
+      const mixedStream = destination.stream;
+      const mediaRecorder = new MediaRecorder(mixedStream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      const audioChunks = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data); // Keep full backup (optional, or just discard)
+          batchChunksRef.current.push(event.data); // Add to current batch
+        }
+      };
+
+      const flushTranscription = async (isFinal = false) => {
+        if (batchChunksRef.current.length === 0) return;
+
+        const batchBlob = new Blob(batchChunksRef.current, { type: 'audio/webm' });
+        // Reset batch immediately to capture next segments
+        batchChunksRef.current = [];
+
+        if (batchBlob.size < 1000) {
+          if (isFinal) console.warn('Final flush: blob too small.');
+          return;
+        }
+
+        console.log(`Flushing batch. Size: ${batchBlob.size} bytes. Final: ${isFinal}`);
+
+        const arrayBuffer = await batchBlob.arrayBuffer();
+        const buffer = new Uint8Array(arrayBuffer);
+
+        try {
+          if (!isFinal) {
+            setStatusStage('tool');
+            setActiveToolName('processando trecho...');
+          }
+          setIsSending(true);
+
+          const text = await window.api.transcribe(buffer);
+
+          if (text && text.trim()) {
+            if (text.startsWith('Error:')) throw new Error(text);
+
+            // Check for hallucinations on partials
+            if (text.length > 5) {
+              setTranscriptionPreview(prev => {
+                const separator = prev ? '\n' : '';
+                return `${prev || ''}${separator}${text}`;
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Batch transcription failed:', err);
+          // We could retry or just log error. 
+          // For now, log and maybe notify via toast if critical.
+        } finally {
+          setIsSending(false);
+          if (!isFinal) {
+            setStatusStage('listening');
+            setActiveToolName('gravando...');
+          }
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop timer
+        if (transcriptionIntervalRef.current) {
+          clearInterval(transcriptionIntervalRef.current);
+          transcriptionIntervalRef.current = null;
+        }
+
+        console.log('Recording stopped. Flushing remaining audio...');
+        await flushTranscription(true);
+
+        // Stop all tracks
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+
+        // Final UI update
+        setStatusStage('thinking');
+        setInput("Resuma os pontos principais, tarefas e decisões dessa reunião.");
+
+        // Visualizer
+        setAudioLevel(0);
+      };
+
+      // Request data every 1 second to ensure valid webm chunks
+      mediaRecorder.start(1000);
+
+      // Start periodic flush (every 2 minutes)
+      // 2 minutes = 120000 ms
+      transcriptionIntervalRef.current = setInterval(() => {
+        flushTranscription(false);
+      }, 120000);
+
+      setIsRecording(true);
+      if (window.api && window.api.sendRecordingStatus) {
+        window.api.sendRecordingStatus(true);
+      }
+      if (includeSystemAudio) {
+        setAudioError(null); // Clear any previous errors
+      }
+      updateLevel(); // Start visualizer loop
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `Recording error: ${err.message}` }
+      ]);
+    }
+  };
+
 
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -601,7 +866,27 @@ export default function App() {
           )}
         </main>
 
-        <footer className="shrink-0 border-t border-white/10 bg-slate-950/50 px-4 py-3">
+        <footer className="relative shrink-0 border-t border-white/10 bg-slate-950/50 px-4 py-3">
+          {transcriptionPreview && (
+            <div className="absolute bottom-full left-0 right-0 mx-4 mb-2 overflow-hidden rounded-xl border border-emerald-500/30 bg-slate-900/95 shadow-2xl backdrop-blur animate-in fade-in slide-in-from-bottom-4">
+              <div className="flex items-center justify-between border-b border-white/10 bg-emerald-500/10 px-3 py-2">
+                <span className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Transcrição Detectada
+                </span>
+                <button
+                  onClick={() => setTranscriptionPreview(null)}
+                  className="rounded hover:bg-white/10 p-1 text-slate-400 hover:text-white transition"
+                  title="Descartar"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto p-3 text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-mono">
+                {transcriptionPreview}
+              </div>
+            </div>
+          )}
           {pendingImage && (
             <div className="mb-2 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
               <img
@@ -627,6 +912,47 @@ export default function App() {
             >
               <Camera size={18} />
             </button>
+
+            <button
+              className={`no-drag rounded-2xl border p-3 transition ${isRecording
+                ? 'border-red-500/50 bg-red-500/20 text-red-200 animate-pulse'
+                : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/20'
+                }`}
+              onClick={handleMicrophoneClick}
+              aria-label={isRecording ? "Parar gravação" : "Gravar áudio"}
+              title={isRecording ? "Parar (Clique)" : "Gravar"}
+            >
+              <div className="relative">
+                {isRecording ? <Square size={18} fill="currentColor" /> : <Mic size={18} />}
+                {isRecording && (
+                  <span
+                    className="absolute -bottom-1 -right-1 block h-1.5 w-1.5 rounded-full bg-green-400 transition-all"
+                    style={{
+                      transform: `scale(${1 + (audioLevel / 50)})`,
+                      opacity: Math.max(0.3, audioLevel / 100)
+                    }}
+                  />
+                )}
+              </div>
+            </button>
+            {isRecording && (
+              <div className="mx-2 flex flex-col items-center">
+                <div className="h-10 w-1 rounded bg-white/10">
+                  <div
+                    className="w-full rounded bg-emerald-400 transition-all duration-75 ease-out"
+                    style={{
+                      height: `${Math.min(100, Math.max(5, audioLevel))}%`,
+                      marginTop: `${100 - Math.min(100, Math.max(5, audioLevel))}%`
+                    }}
+                  />
+                </div>
+                {audioLevel === 0 && (
+                  <span className="absolute bottom-16 rounded bg-red-500/80 px-2 py-1 text-[10px] text-white backdrop-blur">
+                    Sem Áudio?
+                  </span>
+                )}
+              </div>
+            )}
             <textarea
               className="no-drag h-14 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
               placeholder="Pergunte a Ambi..."
