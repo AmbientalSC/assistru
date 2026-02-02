@@ -14,7 +14,11 @@ import {
   Square,
   Monitor,
   Mic,
-  AlertTriangle
+  AlertTriangle,
+  Plus,
+  Trash2,
+  Check,
+  Play
 } from 'lucide-react';
 
 const defaultSettings = {
@@ -106,6 +110,11 @@ export default function App() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [isUpdateReady, setIsUpdateReady] = useState(false);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
+
+  // Personality State
+  const [personalities, setPersonalities] = useState([]);
+  const [activePersonalityId, setActivePersonalityId] = useState('');
+  const [editingPersonality, setEditingPersonality] = useState(null);
   const [transcriptionPreview, setTranscriptionPreview] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioError, setAudioError] = useState(null);
@@ -325,6 +334,69 @@ export default function App() {
       if (removeProgressListener) removeProgressListener();
     };
   }, []);
+
+  // Fetch personalities when settings open
+  useEffect(() => {
+    if (showSettings && window.api?.getPersonalities) {
+      window.api.getPersonalities().then(({ personalities, activeId }) => {
+        setPersonalities(personalities);
+        setActivePersonalityId(activeId);
+        // Default to editing active or first
+        const active = personalities.find(p => p.id === activeId) || personalities[0];
+        setEditingPersonality(active ? { ...active } : { id: null, name: 'Nova Personalidade', prompt: '' });
+      });
+    }
+  }, [showSettings]);
+
+  const handleSavePersonality = async () => {
+    if (!editingPersonality || !editingPersonality.name) return;
+
+    let newList = [...personalities];
+    let newActiveId = activePersonalityId;
+    let savedP = null;
+
+    if (editingPersonality.id) {
+      // Edit existing
+      const index = newList.findIndex(p => p.id === editingPersonality.id);
+      if (index !== -1) {
+        newList[index] = editingPersonality;
+        savedP = editingPersonality;
+      }
+    } else {
+      // Create new
+      const newId = `custom-${Date.now()}`;
+      savedP = { ...editingPersonality, id: newId };
+      newList.push(savedP);
+    }
+
+    setPersonalities(newList);
+    setEditingPersonality(savedP); // Update ref to saved version
+    await window.api.savePersonalities(newList);
+  };
+
+  const handleDeletePersonality = async (id) => {
+    if (personalities.length <= 1) return; // Prevent deleting last one
+
+    const newList = personalities.filter(p => p.id !== id);
+    setPersonalities(newList);
+
+    if (id === activePersonalityId || id === editingPersonality?.id) {
+      const fallback = newList[0];
+      if (id === activePersonalityId) {
+        setActivePersonalityId(fallback.id);
+        await window.api.setActivePersonality(fallback.id);
+      }
+      setEditingPersonality({ ...fallback });
+    }
+
+    await window.api.savePersonalities(newList);
+  };
+
+  const handleSetActive = async (id) => {
+    setActivePersonalityId(id);
+    await window.api.setActivePersonality(id);
+  };
+
 
   useEffect(() => {
     if (!window.api?.onStatus) return undefined;
@@ -797,7 +869,7 @@ export default function App() {
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.10</span>
+                Ambi Chat <span className="ml-1 text-[10px] font-normal text-slate-400 opacity-60">v0.1.11</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1107,7 +1179,8 @@ export default function App() {
                 { key: 'openai', label: 'OpenAI' },
                 { key: 'openrouter', label: 'OpenRouter' },
                 { key: 'gemini', label: 'Gemini' },
-                { key: 'supabase', label: 'Supabase' }
+                { key: 'supabase', label: 'Supabase' },
+                { key: 'personalities', label: 'Personalidades' }
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -1585,6 +1658,95 @@ export default function App() {
                   <p className="text-[11px] text-slate-400">
                     Chave de API necessária para acessar recursos de banco de dados vetorial.
                   </p>
+                </div>
+              )}
+
+              {settingsTab === 'personalities' && (
+                <div className="flex h-[400px] gap-4">
+                  {/* Left Column: List */}
+                  <div className="flex w-1/3 flex-col gap-2 border-r border-white/10 pr-2">
+                    <button
+                      onClick={() => setEditingPersonality({ id: null, name: 'Nova Personalidade', prompt: '' })}
+                      className="flex items-center gap-2 rounded-xl border border-dashed border-white/20 bg-white/5 p-2 text-xs text-slate-300 transition hover:bg-white/10 hover:text-emerald-400"
+                    >
+                      <Plus size={14} /> Nova Personalidade
+                    </button>
+                    <div className="flex-1 overflow-y-auto pr-1">
+                      {personalities.map(p => (
+                        <div
+                          key={p.id}
+                          onClick={() => setEditingPersonality({ ...p })}
+                          className={`group relative mb-2 cursor-pointer rounded-xl border p-2 transition ${editingPersonality?.id === p.id
+                            ? 'border-emerald-400/50 bg-emerald-400/10'
+                            : 'border-white/10 bg-white/5 hover:border-white/20'
+                            }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-slate-200">{p.name}</span>
+                            {activePersonalityId === p.id && (
+                              <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                                <Check size={10} /> Ativa
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Editor */}
+                  <div className="flex w-2/3 flex-col">
+                    {editingPersonality ? (
+                      <>
+                        <label className="mb-1 block text-xs uppercase tracking-widest text-slate-300/70">Nome</label>
+                        <input
+                          className="mb-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                          value={editingPersonality.name}
+                          onChange={(e) => setEditingPersonality({ ...editingPersonality, name: e.target.value })}
+                          placeholder="Ex: Especialista em Leis"
+                        />
+
+                        <label className="mb-1 block text-xs uppercase tracking-widest text-slate-300/70">System Prompt</label>
+                        <textarea
+                          className="mb-3 flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 font-mono"
+                          value={editingPersonality.prompt}
+                          onChange={(e) => setEditingPersonality({ ...editingPersonality, prompt: e.target.value })}
+                          placeholder="Descreva como a IA deve se comportar..."
+                        />
+
+                        <div className="flex justify-end gap-2">
+                          {editingPersonality.id && editingPersonality.id !== activePersonalityId && (
+                            <button
+                              onClick={() => handleSetActive(editingPersonality.id)}
+                              className="flex items-center gap-1 rounded-lg border border-emerald-400/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-400/10"
+                            >
+                              <Play size={12} /> Usar Agora
+                            </button>
+                          )}
+
+                          {editingPersonality.id && personalities.length > 1 && (
+                            <button
+                              onClick={() => handleDeletePersonality(editingPersonality.id)}
+                              className="flex items-center gap-1 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-400/10"
+                            >
+                              <Trash2 size={12} /> Excluir
+                            </button>
+                          )}
+
+                          <button
+                            onClick={handleSavePersonality}
+                            className="flex items-center gap-1 rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
+                          >
+                            <Check size={14} /> Salvar
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center text-slate-500">
+                        Selecione ou crie uma personalidade
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

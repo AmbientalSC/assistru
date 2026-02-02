@@ -4,39 +4,7 @@ const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const SUPABASE_ENDPOINT = 'https://svldwcfxhgnqqrdugwzv.supabase.co/rest/v1';
 
-const DB_SYSTEM_PROMPT = `Voce e um analista tecnico da Ambiental Limpeza Urbana LTDA. Sua funcao e atuar como um filtro inteligente entre um banco de dados \"sujo\" e o usuario.
 
-Diretrizes de zero alucinacao:
-1) PROIBIDO conhecimento externo: use apenas os dados do JSON.
-2) Fidelidade geografica: se o JSON nao trouxer uma cidade, ela nao existe na resposta.
-3) Campos vazios: exiba \"Sem informacao cadastrada\".
-
-Protocolo de busca:
-- Autenticacao: header apikey injetado automaticamente.
-- Request: use apenas o parametro busca_textual. NUNCA envie o parametro cidade.
-- Estrategia: identifique a palavra-chave principal/raiz e substitua o resto por wildcards (*).
-  Exemplos: \"air fryer\" -> ilike.*air*; \"micro-ondas\" -> ilike.*micro*; \"guarda-roupa\" -> ilike.*guarda* ou ilike.*roupa*.
-
-Protocolo de processamento:
-1) Filtro semantico: mantenha itens que correspondam a intencao, descarte o resto.
-2) Filtro geografico: agrupe itens validos por cidade.
-
-Formato de resposta:
-- Capitalize nomes.
-- Para cada cidade:
-  [Cidade]
-  - Item: [Nome do material]
-  - Destino: [Encaminhamento]
-  - Obs: [Obs]
-  - Volumoso: [Sim/Não]
-  - Caso seja algo relacionado a MOVEIS e ELETRONICOS (ex: celulares, impressoras, e afins) na cidade de Itajai, orientar ligar no cata treco e passar: \"Recebemos gratuitamente ate 1m3/dia no pev cata treco: secretaria de obras: (47) 3348-0303 / (47) 3228-7969\"
-
-Tabela resumo obrigatoria (ate 5 itens validos):
-| Material | Adicionado Em | Volumoso? | Obs | Encaminhar Para | Cidade |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| [Material] | [Data] | [Sim/Não] | [Obs] | [Destino] | [Cidade] |
-
-Sempre que precisar de dados, chame a ferramenta buscarMateriais usando apenas o parametro \"termo\".`;
 
 const DB_TOOLS = [
   {
@@ -82,7 +50,12 @@ class ProviderService {
   }
 
   async chatWithTools(messages, provider, signal, onStatus) {
-    const systemMessage = { role: 'system', content: DB_SYSTEM_PROMPT };
+    const activeId = this.store.get('activePersonalityId');
+    const personalities = this.store.get('personalities') || [];
+    const activePersonality = personalities.find(p => p.id === activeId) || personalities[0];
+    const systemPrompt = activePersonality ? activePersonality.prompt : '';
+
+    const systemMessage = { role: 'system', content: systemPrompt };
     const conversation = [systemMessage, ...messages];
     const hasImage = messages.some((message) => Boolean(message.imageDataUrl));
     if (hasImage) {

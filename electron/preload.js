@@ -31,5 +31,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('download-progress', handler);
     return () => ipcRenderer.removeListener('download-progress', handler);
   },
-  installUpdate: () => ipcRenderer.invoke('update:install')
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  getPersonalities: () => ipcRenderer.invoke('personalities:get'),
+  savePersonalities: (personalities) => ipcRenderer.invoke('personalities:save', { personalities }),
+  setActivePersonality: (id) => ipcRenderer.invoke('personalities:setActive', id)
 });
