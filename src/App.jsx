@@ -41,7 +41,8 @@ const defaultSettings = {
   floatingShortcutEnabled: true,
   globalShortcut: 'CommandOrControl+Shift+Space',
   sofitEmail: '',
-  sofitPassword: ''
+  sofitPassword: '',
+  firebaseToken: ''
 };
 
 const groqModelOptions = [
@@ -735,8 +736,9 @@ export default function App() {
         const micConstraints = {
           audio: {
             deviceId: selectedMicId !== 'default' ? { exact: selectedMicId } : undefined,
-            // Optional: Add echoCancellation if needed, but usually default is fine
-            // echoCancellation: true,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
           }
         };
 
@@ -976,13 +978,16 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen p-3">
-      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-br from-slate-950/80 via-slate-900/70 to-slate-800/50 text-slate-100 shadow-glass backdrop-blur-2xl">
+      <div className={`relative flex h-full w-full flex-col overflow-hidden rounded-3xl border border-white/15 text-slate-100 shadow-glass backdrop-blur-2xl ${settings.windowOpacity >= 0.98
+        ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800'
+        : 'bg-gradient-to-br from-slate-950/80 via-slate-900/70 to-slate-800/50'
+        }`}>
         <header className="drag-region flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.16</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.17</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1199,28 +1204,28 @@ export default function App() {
           </div>
           {settings.provider === 'groq' && !settings.groqApiKey && (
             <p className="mt-2 text-[11px] text-amber-200/80">
-              Add your Groq API key in Settings to send requests.
+              Adicione sua chave API Groq em Configurações para enviar requisições.
             </p>
           )}
           {settings.provider === 'openai' && !settings.openaiApiKey && (
             <p className="mt-2 text-[11px] text-amber-200/80">
-              Add your OpenAI API key in Settings to send requests.
+              Adicione sua chave API OpenAI em Configurações para enviar requisições.
             </p>
           )}
           {settings.provider === 'openrouter' && !settings.openrouterApiKey && (
             <p className="mt-2 text-[11px] text-amber-200/80">
-              Add your OpenRouter API key in Settings to send requests.
+              Adicione sua chave API OpenRouter em Configurações para enviar requisições.
             </p>
           )}
           {settings.provider === 'gemini' && !settings.geminiApiKey && (
             <p className="mt-2 text-[11px] text-amber-200/80">
-              Add your Gemini API key in Settings to send requests.
+              Adicione sua chave API Gemini em Configurações para enviar requisições.
             </p>
           )}
           {settings.provider === 'groq' && pendingImage && (
             <p className="mt-2 text-[11px] text-amber-200/80">
-              If your Groq model does not support images, the request will fail. Use a vision model
-              or switch to Ollama.
+              Se o modelo Groq não suportar imagens, a requisição falhará. Use um modelo de visão
+              ou mude para Ollama.
             </p>
           )}
         </footer>
@@ -1860,6 +1865,28 @@ export default function App() {
                     value={settings.sofitPassword || ''}
                     onChange={(event) => updateSetting('sofitPassword', event.target.value)}
                   />
+
+                  <div className="my-4 h-px bg-white/10" />
+
+                  {/* FIREBASE CONFIGURATION */}
+                  <h3 className="mb-4 text-sm font-semibold text-emerald-400">Firebase (Templates)</h3>
+                  <div>
+                    <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                      Firebase Bearer Token
+                    </label>
+                    <input
+                      type="password"
+                      value={settings.firebaseToken}
+                      onChange={(e) =>
+                        updateSetting('firebaseToken', e.target.value)
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                      placeholder="Token de acesso ao Firestore"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Necessário para acessar os templates de atendimento.
+                    </p>
+                  </div>
                 </div>
               )}
 

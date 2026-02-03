@@ -18,7 +18,7 @@
 - 🤖 Faça perguntas sobre descarte de materiais
 - 📸 Envie capturas de tela de produtos para identificação
 - 🗄️ Consulte banco de dados de materiais recicláveis por cidade
-- 🌐 Escolha entre diferentes provedores de IA (Ollama local, Groq, OpenAI, Gemini, OpenRouter)
+- 🌐 Escolha entre diferentes provedores de IA (Ollama local, Groq, Gemini)
 
 ## ✨ Funcionalidades
 
@@ -31,9 +31,7 @@
 ### Múltiplos Provedores de IA
 - **Ollama** (execução local, privacidade total)
 - **Groq** (rápido e gratuito)
-- **OpenAI** (GPT-4o mini)
 - **Gemini** (Google AI)
-- **OpenRouter** (agregador de modelos)
 
 ### Captura de Tela Inteligente
 - Selecione área da tela para capturar
@@ -98,20 +96,10 @@ Baixe a versão mais recente em [Releases](https://github.com/AmbientalSC/assist
 - **Modelo:** `llama-4-scout-17b-16e-instruct`
 - **Vantagens:** ultra rápido, tier gratuito generoso
 
-#### OpenAI
-- **API Key:** obtenha em [platform.openai.com](https://platform.openai.com)
-- **Modelo:** `gpt-4o-mini`
-- **Vantagens:** qualidade superior, multimodal
-
 #### Gemini
 - **API Key:** obtenha em [aistudio.google.com](https://aistudio.google.com)
 - **Modelo:** `gemini-2.5-flash`
 - **Vantagens:** tier gratuito, bom custo-benefício
-
-#### OpenRouter
-- **API Key:** obtenha em [openrouter.ai](https://openrouter.ai)
-- **Modelo:** `openrouter/auto` (seleção automática)
-- **Vantagens:** acesso a múltiplos modelos
 
 ### Ferramenta de Banco de Dados (Opcional)
 
@@ -146,84 +134,6 @@ Para habilitar consultas ao banco de materiais:
  3. Clique novamente para parar.
  4. O texto transcrito aparecerá no chat ou como contexto para sua pergunta.
 
-## 🛠️ Desenvolvimento
-
-### Pré-requisitos
-
-- Node.js 18+ e npm
-- Git
-
-### Clonar o Repositório
-
-```bash
-git clone https://github.com/AmbientalSC/assistru.git
-cd assistru
-```
-
-### Instalar Dependências
-
-```bash
-npm install
-```
-
-### Executar em Modo Desenvolvimento
-
-```bash
-npm run dev
-```
-
-Isso inicia:
-- Vite dev server na porta 5173
-- Electron em modo hot-reload
-
-### Build para Produção
-
-```bash
-# Build do frontend (Vite)
-npm run build
-
-# Build completo + empacotamento
-npm run dist
-
-# Build apenas para Windows
-npm run dist:win
-```
-
-Os executáveis serão gerados na pasta `release/`.
-
-## 📦 Estrutura do Projeto
-
-```
-assistru/
-├── src/                    # Código React (frontend)
-│   ├── App.jsx            # Componente principal
-│   ├── index.css          # Estilos globais
-│   └── main.jsx           # Entry point
-├── electron/              # Código Electron (backend)
-│   ├── main.js            # Processo principal
-│   ├── preload.js         # Bridge de segurança
-│   ├── overlay.html/js    # Captura de tela
-│   ├── shortcut.html/js   # Botão flutuante
-│   └── providers/
-│       └── ProviderService.js  # Integração IA
-├── dist/                  # Build do Vite (gerado)
-├── release/               # Executáveis (gerado)
-├── icon.ico              # Ícone da aplicação
-├── package.json          # Configurações e dependências
-├── vite.config.js        # Configuração Vite
-└── tailwind.config.js    # Configuração Tailwind
-```
-
-## 🔧 Scripts NPM
-
-| Script | Descrição |
-|--------|-----------|
-| `npm run dev` | Desenvolvimento (Vite + Electron) |
-| `npm run build` | Build do frontend (Vite) |
-| `npm run build:all` | Build completo |
-| `npm run dist` | Gera executáveis para Windows |
-| `npm run release` | Build + publicação no GitHub |
-| `npm start` | Inicia Electron (produção) |
 
 ## 📝 Licença
 

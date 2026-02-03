@@ -62,7 +62,7 @@ if (!gotTheLock) {
       ollamaApiKey: '',
       supabaseApiKey: '',
       dbToolEnabled: true,
-      windowOpacity: 0.92,
+      windowOpacity: 0.99,
       floatingShortcutEnabled: true,
       globalShortcut: 'CommandOrControl+Shift+Space',
       personalities: [

@@ -59,6 +59,28 @@ const DB_TOOLS = [
         required: ['search', 'page']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fetchTemplates',
+      description: 'Busca um template de atendimento no Firebase. Use quando o usuario pedir "template", "texto para", "script para", ou "o que falar".',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: {
+            type: 'string',
+            description: 'Palavras-chave para buscar o template (ex: "cancelamento debito", "nota fiscal").'
+          },
+          variables: {
+            type: 'object',
+            description: 'Objeto JSON com dados extraidos da conversa para preencher o template (ex: { "nome": "Maria", "codigo": "123" }). Tente extrair o máximo de campos possivel.',
+            additionalProperties: true
+          }
+        },
+        required: ['keywords', 'variables']
+      }
+    }
   }
 ];
 
@@ -384,6 +406,10 @@ class ProviderService {
         });
 
         const data = await response.json();
+        if (data?.usage) {
+          console.log('[Groq Usage]', JSON.stringify(data.usage, null, 2));
+        }
+
         if (!response.ok) {
           let message = data?.error?.message || data?.error || 'Groq request failed.';
 
@@ -752,6 +778,24 @@ class ProviderService {
             content: JSON.stringify({ error: err.message })
           });
         }
+      } else if (name === 'fetchTemplates') {
+        notify({ stage: 'tool', tool: name });
+        try {
+          const result = await this.fetchTemplates(args);
+          results.push({
+            role: 'tool',
+            tool_call_id: call?.id || call?.tool_call_id,
+            name,
+            content: JSON.stringify(result)
+          });
+        } catch (err) {
+          results.push({
+            role: 'tool',
+            tool_call_id: call?.id || call?.tool_call_id,
+            name,
+            content: JSON.stringify({ error: err.message })
+          });
+        }
       } else {
         results.push({
           role: 'tool',
@@ -1092,6 +1136,124 @@ class ProviderService {
     clean = clean.replace(repeatRegex, '$1');
 
     return clean.trim();
+  }
+
+
+  async fetchTemplates({ keywords, variables }) {
+    const token = this.store.get('firebaseToken', '');
+    if (!token) {
+      throw new Error('Token do Firebase não configurado nas Configurações.');
+    }
+
+    const endpoint = 'https://firestore.googleapis.com/v1/projects/atendimento-f2f9f/databases/(default)/documents/templates';
+
+    // 1. Fetch templates from Firestore
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(`Erro ao buscar templates: ${err?.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const documents = data.documents || [];
+
+    // 2. Fuzzy/Simple Keyword matching
+    // Filter documents where title or template content matches keywords
+    const searchTerms = keywords.toLowerCase().split(' ').filter(t => t.length > 2);
+
+    // Calculate simple score
+    const scored = documents.map(doc => {
+      const fields = doc.fields || {};
+      const title = fields.title?.stringValue || '';
+      const template = fields.template?.stringValue || '';
+      const active = fields.active?.booleanValue ?? true;
+
+      // Skip inactive if you wish, though user might want to see them. Let's filter active only by default?
+      // Based on file, there is an "active" boolean value.
+      if (active === false) return null;
+
+      let score = 0;
+      const combined = (title + ' ' + template).toLowerCase();
+
+      searchTerms.forEach(term => {
+        if (combined.includes(term)) score += 1;
+        if (title.toLowerCase().includes(term)) score += 2; // Title match worth more
+      });
+
+      return { doc, score, title, template, fields };
+    }).filter(item => item !== null && item.score > 0);
+
+    // Sort by score desc
+    scored.sort((a, b) => b.score - a.score);
+
+    const bestMatch = scored[0];
+    if (!bestMatch) {
+      return { warning: 'Nenhum template encontrado com essas palavras-chave.' };
+    }
+
+    // 3. Process Logic & Fill Template
+    // logic map: fields.template_logic.mapValue.fields.[variable].mapValue.fields
+    //   -> condition: mapValue.fields { field: stringValue, value: stringValue }
+    //   -> text: stringValue (Text to append/use if condition matches)
+
+    let finalText = bestMatch.template;
+    const logicMap = bestMatch.fields.template_logic?.mapValue?.fields || {};
+    const filledVars = { ...variables };
+
+    // Apply Logic (simple implementation based on observed structure)
+    // Structure seems to be: conditional text injection based on other fields
+    // Example: "contato2": { condition: { field: "contato", value: "DIGITAL" }, text: "ENTROU EM CONTATO" }
+    // This implies: if variables.contato == "DIGITAL", then variables.contato2 = "ENTROU EM CONTATO"
+
+    for (const [key, logicNode] of Object.entries(logicMap)) {
+      const nodeFields = logicNode?.mapValue?.fields;
+      if (!nodeFields) continue;
+
+      const condition = nodeFields.condition?.mapValue?.fields;
+      const textToApply = nodeFields.text?.stringValue;
+
+      if (condition && textToApply) {
+        const targetField = condition.field?.stringValue;
+        const targetValue = condition.value?.stringValue;
+
+        // Check if our variables meet the condition
+        if (variables[targetField] === targetValue) {
+          filledVars[key] = textToApply;
+        } else {
+          // Logic not met, maybe set empty? Or keep original if exists?
+          // Usually in these engines if condition fails, and it's a derived field, it might be empty.
+          if (!filledVars[key]) filledVars[key] = '';
+        }
+      }
+    }
+
+    // Determine user gender (example based on doc: SR/SRA options)
+    // If the template has {{SR}}, we might want to infer from context or variables
+    // For now, relies on LLM passing "SR": "O SR." or "A SRA."
+
+    // Replace Mustache/Handlebars variables {{key}}
+    // We simple replace globally 
+    for (const [key, val] of Object.entries(filledVars)) {
+      const regex = new RegExp(`{{${key}}}`, 'gi'); // Case insensitive replacement
+      finalText = finalText.replace(regex, String(val));
+    }
+
+    // Cleanup unused tags? Optional. Sometimes templates leave {{missing}} visible to prompt user.
+    // Let's keep them so the user knows what's missing, OR we can tell the LLM.
+
+    return {
+      template_title: bestMatch.title,
+      original_template: bestMatch.template,
+      filled_text: finalText,
+      used_variables: filledVars,
+      match_score: bestMatch.score
+    };
   }
 
   normalizeOllamaEndpoint(raw) {
