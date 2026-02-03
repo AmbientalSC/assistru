@@ -1143,7 +1143,7 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.18</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.19</span>
               </h1>
               {updateAvailable && (
                 <button
