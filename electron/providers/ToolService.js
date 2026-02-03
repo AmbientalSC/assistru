@@ -1,6 +1,13 @@
 const crypto = require('crypto');
 
 const SUPABASE_ENDPOINT = 'https://svldwcfxhgnqqrdugwzv.supabase.co/rest/v1';
+const INLOG_AUTH_URL = 'https://ambientalsc.inlog.com.br/autenticacao-services/connect/token';
+const INLOG_BASE_URL = 'https://ambientalsc.inlog.com.br/IntegrationColeta/api';
+const INLOG_CREDENTIALS = {
+    client_id: 'AmbientalSC.Client.Coleta',
+    client_secret: 'QW1iaWVudGFsU0MuQ2xpZW50LkNvbGV0YQ==',
+    scope: 'Inlog.Integration.Coleta.Api'
+};
 
 const DB_TOOLS = [
     {
@@ -88,6 +95,28 @@ const DB_TOOLS = [
                 required: ['endereco']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'buscarInlog',
+            description: 'Consulta Falhas ou Alarmes da frota via Inlog (últimas 24h).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    tipo: {
+                        type: 'string',
+                        enum: ['alarmes', 'falhas'],
+                        description: 'Tipo de consulta: "alarmes" ou "falhas".'
+                    },
+                    placa: {
+                        type: 'string',
+                        description: 'Placa do veículo para filtrar (opcional). Ex: "QJ06F80".'
+                    }
+                },
+                required: ['tipo']
+            }
+        }
     }
 ];
 
@@ -112,6 +141,9 @@ class ToolService {
         }
         if (name === 'buscarColeta') {
             return this.buscarColeta(args);
+        }
+        if (name === 'buscarInlog') {
+            return this.buscarInlog(args);
         }
         throw new Error(`Ferramenta desconhecida: ${name}`);
     }
@@ -516,7 +548,15 @@ class ToolService {
 
     async getAccessTokenFromServiceAccount(serviceAccountJson) {
         try {
-            const credentials = JSON.parse(serviceAccountJson);
+            let credentials;
+            try {
+                credentials = JSON.parse(serviceAccountJson);
+            } catch (jsonErr) {
+                // Try to catch common "JS Object" paste errors
+                console.error('[Auth] Validation Error. Token content (first 50 chars):', serviceAccountJson.substring(0, 50));
+                throw new Error('O Token fornecido não é um JSON válido. Verifique se há aspas nas chaves (ex: "client_email") e se não há caracteres extras.');
+            }
+
             const { client_email, private_key } = credentials;
 
             if (!client_email || !private_key) {
@@ -631,6 +671,100 @@ class ToolService {
             coordinates: { lat, lon },
             coleta_info: simplifiedResult,
             orientacoes_gerais: Array.from(messagesSet) // New field for footer text
+        };
+    }
+    async getInlogToken() {
+        console.log('[Inlog] Getting Auth Token...');
+        const clientId = this.store.get('inlogClientId', INLOG_CREDENTIALS.client_id);
+        const clientSecret = this.store.get('inlogClientSecret', INLOG_CREDENTIALS.client_secret);
+
+        const params = new URLSearchParams();
+        params.append('grant_type', 'client_credentials');
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+        params.append('scope', INLOG_CREDENTIALS.scope);
+
+        const response = await fetch(INLOG_AUTH_URL, {
+            method: 'POST',
+            body: params,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Erro Auth Inlog: ${response.status} - ${err}`);
+        }
+
+        const data = await response.json();
+        return data.access_token;
+    }
+
+    async buscarInlog(args) {
+        const { tipo, placa } = args;
+        if (!['alarmes', 'falhas'].includes(tipo)) {
+            throw new Error('Tipo inválido. Use "alarmes" ou "falhas".');
+        }
+
+        const token = await this.getInlogToken();
+
+        // Dates: Start = Now - 24h, End = Now - 10min (buffer)
+        const now = new Date();
+        const end = new Date(now.getTime() - 10 * 60000); // -10 min
+        const start = new Date(now.getTime() - 24 * 60 * 60000); // -24h
+
+        // Format to yyyy-MM-ddTHH:mm:ss for Inlog (local time assumption or UTC?)
+        // The doc says "data always 24h less than current".
+        // Pseudocode in doc uses ISO format.
+        // JS toISOString() uses UTC. "2024-01-30T00:00:00"
+        // Let's use simple string concat to ensure format.
+        const toISO = (d) => d.toISOString().split('.')[0];
+
+        const dataInicio = toISO(start);
+        const dataFim = toISO(end);
+
+        const endpoint = tipo === 'alarmes' ? 'Alarmes' : 'Falha';
+        const url = new URL(`${INLOG_BASE_URL}/${endpoint}`);
+        url.searchParams.set('dataInicio', dataInicio);
+        url.searchParams.set('dataFim', dataFim);
+
+        console.log(`[Inlog] Fetching ${tipo} from ${dataInicio} to ${dataFim}...`);
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Erro API Inlog: ${response.statusText}`);
+        }
+
+        const jsonResponse = await response.json();
+
+        // Inlog API returns { success: true, data: [...] }
+        const list = Array.isArray(jsonResponse.data) ? jsonResponse.data : [];
+        let filtered = list;
+
+        if (placa) {
+            // Normalize search input: Remove special chars (keep only alphanumeric)
+            const search = placa.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            console.log(`[Inlog] Filtering for identifier/plate: ${search}`);
+
+            filtered = list.filter(item => {
+                // Normalize "placa" (e.g., RXP-2E64 -> RXP2E64)
+                const p = (item.placa || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                // Normalize "identificador" (e.g., VT-7292 -> VT7292)
+                const id = (item.identificador || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+                return p === search || id === search;
+            });
+        }
+
+        return {
+            tipo,
+            periodo: { inicio: dataInicio, fim: dataFim },
+            total_encontrado: list.length,
+            total_retornado: filtered.length,
+            resultados: filtered.slice(0, 50) // Limit to 50 items
         };
     }
 }
