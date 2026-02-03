@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('screenshot-captured', handler);
     return () => ipcRenderer.removeListener('screenshot-captured', handler);
   },
+  onLogoff: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('cmd:logoff', handler);
+    return () => ipcRenderer.removeListener('cmd:logoff', handler);
+  },
   getPersonalities: () => ipcRenderer.invoke('personalities:get'),
   savePersonalities: (personalities) => ipcRenderer.invoke('personalities:save', { personalities }),
   setActivePersonality: (id) => ipcRenderer.invoke('personalities:setActive', id),

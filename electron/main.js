@@ -4,6 +4,7 @@ const Store = require('electron-store');
 const screenshot = require('screenshot-desktop');
 const { autoUpdater } = require('electron-updater');
 const ProviderService = require('./providers/ProviderService');
+const FirebaseService = require('./services/FirebaseService');
 
 autoUpdater.logger = console;
 autoUpdater.autoDownload = true;
@@ -115,16 +116,43 @@ Sempre que precisar de dados, chame a ferramenta buscarMateriais usando apenas o
     store.set('groqModel', groqPreferredModel);
   }
 
+  const firebaseService = new FirebaseService();
+
   // IPC Handlers for Personalities
-  ipcMain.handle('personalities:get', () => {
+  ipcMain.handle('personalities:get', async () => {
+    try {
+      if (firebaseService.isReady()) {
+        const remotePersonalities = await firebaseService.getAllPersonalities();
+        if (remotePersonalities && remotePersonalities.length > 0) {
+          store.set('personalities', remotePersonalities);
+          console.log('[Main] Synced personalities from Firebase.');
+        }
+      }
+    } catch (error) {
+      console.warn('[Main] Failed to sync personalities from Firebase, using local cache:', error.message);
+    }
+
     return {
       personalities: store.get('personalities'),
       activeId: store.get('activePersonalityId')
     };
   });
 
-  ipcMain.handle('personalities:save', (event, { personalities }) => {
-    store.set('personalities', personalities);
+  ipcMain.handle('personalities:save', async (event, { personalities }) => {
+    store.set('personalities', personalities); // Save to local cache first
+
+    // Save each personality to Firebase
+    if (firebaseService.isReady()) {
+      try {
+        const promises = personalities.map(p => firebaseService.savePersonality(p));
+        await Promise.all(promises);
+        console.log('[Main] Saved all personalities to Firebase.');
+      } catch (error) {
+        console.error('[Main] Error saving to Firebase:', error);
+        // We don't throw here to avoid breaking the UI for the user, 
+        // since local save succeeded. Maybe return a warning?
+      }
+    }
     return true;
   });
 
@@ -174,6 +202,16 @@ Sempre que precisar de dados, chame a ferramenta buscarMateriais usando apenas o
     tray = new Tray(icon);
 
     const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Fazer Logoff',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.webContents.send('cmd:logoff');
+          }
+        }
+      },
+      { type: 'separator' },
       {
         label: 'Fechar',
         click: () => {

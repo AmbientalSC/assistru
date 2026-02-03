@@ -18,8 +18,13 @@ import {
   Plus,
   Trash2,
   Check,
-  Play
+  Play,
+  LogOut,
+  Loader2
 } from 'lucide-react';
+import { auth } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import LoginScreen from './components/LoginScreen';
 
 const defaultSettings = {
   provider: 'ollama',
@@ -118,6 +123,36 @@ export default function App() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [isUpdateReady, setIsUpdateReady] = useState(false);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
+
+  // Auth State
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showCloseOptions, setShowCloseOptions] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (window.api?.onLogoff) {
+      const cleanup = window.api.onLogoff(() => {
+        handleLogout();
+      });
+      return cleanup;
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
 
   // Personality State
   const [personalities, setPersonalities] = useState([]);
@@ -354,17 +389,19 @@ export default function App() {
   const markdownComponents = useMemo(
     () => ({
       table: ({ children }) => (
-        <table className="w-full border-collapse text-[11px] text-slate-100/90">
-          {children}
-        </table>
+        <div className="w-full my-2 rounded-lg border border-white/5 bg-white/5 overflow-hidden">
+          <table className="w-full border-collapse text-[11px] text-slate-100/90 table-fixed">
+            {children}
+          </table>
+        </div>
       ),
       thead: ({ children }) => <thead className="bg-white/5">{children}</thead>,
       tbody: ({ children }) => <tbody>{children}</tbody>,
       tr: ({ children }) => <tr className="border-b border-white/10">{children}</tr>,
       th: ({ children }) => (
-        <th className="px-2 py-1 text-left font-semibold text-slate-200/90">{children}</th>
+        <th className="px-2 py-1 text-left font-semibold text-slate-200/90 break-words whitespace-normal">{children}</th>
       ),
-      td: ({ children }) => <td className="px-2 py-1 align-top">{children}</td>,
+      td: ({ children }) => <td className="px-2 py-1 align-top break-words whitespace-normal">{children}</td>,
       p: ({ children }) => (
         <p className="whitespace-pre-wrap leading-snug text-slate-100/90">{children}</p>
       ),
@@ -378,7 +415,7 @@ export default function App() {
           {children}
         </ol>
       ),
-      li: ({ children }) => <li className="whitespace-pre-wrap leading-snug">{children}</li>,
+      li: ({ children }) => <li className="whitespace-normal leading-snug mb-1">{children}</li>,
       strong: ({ children }) => <strong className="font-semibold text-slate-100">{children}</strong>,
       em: ({ children }) => <em className="text-slate-200/90">{children}</em>,
       code: ({ inline, children }) =>
@@ -429,9 +466,9 @@ export default function App() {
     };
   }, []);
 
-  // Fetch personalities when settings open
+  // Fetch personalities on mount (to populate dropdown)
   useEffect(() => {
-    if (showSettings && window.api?.getPersonalities) {
+    if (window.api?.getPersonalities) {
       window.api.getPersonalities().then(({ personalities, activeId }) => {
         setPersonalities(personalities);
         setActivePersonalityId(activeId);
@@ -776,10 +813,14 @@ export default function App() {
   };
 
   const handleQuit = () => {
+    setShowCloseOptions(!showCloseOptions);
+  };
+
+  const handleRealQuit = () => {
     if (window.api?.closeWindow) {
       window.api.closeWindow();
     }
-  };
+  }
 
   const handleMicrophoneClick = async () => {
     if (isRecording) {
@@ -1132,6 +1173,18 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
   };
 
 
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#121212] text-white">
+        <Loader2 className="animate-spin text-emerald-500" size={48} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="h-screen w-screen p-3">
       <div className={`relative flex h-full w-full flex-col overflow-hidden rounded-3xl border border-white/15 text-slate-100 shadow-glass backdrop-blur-2xl ${settings.windowOpacity >= 0.98
@@ -1143,7 +1196,7 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.19</span>
+                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.20</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1154,9 +1207,25 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
                   <AlertTriangle size={16} />
                 </button>
               )}
-              <p className="text-[11px] uppercase text-slate-300/70">{providerLabel} agente</p>
+
             </div>
           </div>
+
+          <div className="no-drag flex-1 flex justify-center px-4">
+            <select
+              className="bg-white/5 border border-white/10 rounded-lg text-xs py-1.5 px-3 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-400/50 hover:bg-white/10 transition cursor-pointer"
+              value={activePersonalityId}
+              onChange={(e) => handleSetActive(e.target.value)}
+              title="Selecionar Personalidade"
+            >
+              {personalities.map((p) => (
+                <option key={p.id} value={p.id} className="bg-slate-900 text-slate-200">
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="no-drag flex items-center gap-2">
             <span className="flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[10px] uppercase tracking-widest text-slate-200/80">
               {settings.provider}
@@ -1171,14 +1240,6 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             </button>
             <button
               className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
-              onClick={handleHide}
-              aria-label="Ocultar chat"
-              title="Minimizar (Ctrl+Shift+Space)"
-            >
-              <Minus size={16} />
-            </button>
-            <button
-              className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
               onClick={() => setShowSettings(true)}
               aria-label="Abrir configurações"
               title="Configurações"
@@ -1186,13 +1247,54 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
               <Settings size={16} />
             </button>
             <button
-              className="rounded-full border border-white/10 bg-white/10 p-2 text-red-200/80 transition hover:bg-red-500/20 hover:text-red-200"
-              onClick={handleQuit}
-              aria-label="Fechar aplicação"
-              title="Fechar Aplicação"
+              className="rounded-full border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
+              onClick={handleHide}
+              aria-label="Ocultar chat"
+              title="Minimizar (Ctrl+Shift+Space)"
             >
-              <Power size={16} />
+              <Minus size={16} />
             </button>
+
+            <div className="relative">
+              <button
+                className={`rounded-full border border-white/10 bg-white/10 p-2 text-red-200/80 transition hover:bg-red-500/20 hover:text-red-200 ${showCloseOptions ? 'bg-red-500/20 text-red-200' : ''}`}
+                onClick={handleQuit}
+                aria-label="Opções de Saída"
+                title="Opções de Saída"
+              >
+                <Power size={16} />
+              </button>
+
+              {showCloseOptions && (
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-white/10 bg-slate-900/95 p-1 shadow-glass backdrop-blur-md z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <button
+                    onClick={() => {
+                      handleHide();
+                      setShowCloseOptions(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-white/10 transition text-left"
+                  >
+                    <Minus size={14} /> Ocultar (Bandeja)
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleLogout();
+                      setShowCloseOptions(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-amber-300 hover:bg-amber-500/10 transition text-left"
+                  >
+                    <LogOut size={14} /> Fazer Logoff
+                  </button>
+                  <div className="my-1 h-px bg-white/10 mx-1" />
+                  <button
+                    onClick={handleRealQuit}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-300 hover:bg-red-500/10 transition text-left"
+                  >
+                    <Power size={14} /> Fechar Aplicativo
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1522,6 +1624,22 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
               <div className="max-h-[70vh] overflow-y-auto pr-2">
                 {settingsTab === 'general' && (
                   <div>
+                    <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                      Conta
+                    </label>
+                    <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-slate-200">{user?.email}</span>
+                        <span className="text-[10px] text-slate-400">Logado via Firebase</span>
+                      </div>
+                      <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-200 hover:bg-red-500/20 transition"
+                      >
+                        <LogOut size={14} /> Sair
+                      </button>
+                    </div>
+
                     <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                       Provedor
                     </label>
@@ -1871,6 +1989,8 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
 
                 {settingsTab === 'openai' && (
                   <div>
+
+
                     <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                       Chave API OpenAI
                     </label>

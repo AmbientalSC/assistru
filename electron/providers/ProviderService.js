@@ -1,10 +1,10 @@
 const { ipcMain } = require('electron');
-const crypto = require('crypto');
+const ToolService = require('./ToolService');
+
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const SUPABASE_ENDPOINT = 'https://svldwcfxhgnqqrdugwzv.supabase.co/rest/v1';
 
 const DB_SYSTEM_PROMPT = `Voce e um assistente especializado em analisar dados da Ambiental SC.
 Seu objetivo e responder a pergunta do usuario com base APENAS no JSON fornecido.
@@ -13,82 +13,10 @@ Diretrizes:
 2. Clareza: Resuma os dados de forma organizada.
 3. Se houver muitos itens, liste os mais relevantes ou agrupe por categoria/cidade.`;
 
-
-const DB_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'buscarMateriais',
-      description: 'Busca materiais no banco de dados da Ambiental SC usando busca_textual.',
-      parameters: {
-        type: 'object',
-        properties: {
-          termo: {
-            type: 'string',
-            description: 'Termo principal do material (ex.: "air fryer", "micro-ondas").'
-          },
-          limit: {
-            type: 'integer',
-            description: 'Limite de resultados (1 a 100).',
-            default: 50
-          }
-        },
-        required: ['termo']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'fetchServiceOrders',
-      description: 'Busca ordens de serviço no sistema Sofit via GraphQL. Requer paginação manual.',
-      parameters: {
-        type: 'object',
-        properties: {
-          search: {
-            type: 'string',
-            description: 'Texto de busca (placa ou prefixo), ex: "VT7246".'
-          },
-          page: {
-            type: 'integer',
-            description: 'Número da página atual (inicia em 1).'
-          },
-          lastIntegrationDate: {
-            type: 'string',
-            description: 'Data de corte para a API (ISO 8601), ex: "2025-01-01T00:00:00Z".'
-          }
-        },
-        required: ['search', 'page']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'fetchTemplates',
-      description: 'Busca um template de atendimento no Firebase. Use quando o usuario pedir "template", "texto para", "script para", ou "o que falar".',
-      parameters: {
-        type: 'object',
-        properties: {
-          keywords: {
-            type: 'string',
-            description: 'Palavras-chave para buscar o template (ex: "cancelamento debito", "nota fiscal").'
-          },
-          variables: {
-            type: 'object',
-            description: 'Objeto JSON com dados extraidos da conversa para preencher o template (ex: { "nome": "Maria", "codigo": "123" }). Tente extrair o máximo de campos possivel.',
-            additionalProperties: true
-          }
-        },
-        required: ['keywords', 'variables']
-      }
-    }
-  }
-];
-
 class ProviderService {
   constructor(store) {
     this.store = store;
+    this.toolService = new ToolService(store);
   }
 
   async chat(messages, signal, onStatus) {
@@ -134,7 +62,6 @@ class ProviderService {
   async chatVisionDbPipeline(messages, provider, signal, onStatus) {
     const notify = typeof onStatus === 'function' ? onStatus : () => { };
     const userMessage = [...messages].reverse().find((msg) => msg.role === 'user') || {};
-    // FIX: Search in reverse to find the LATEST image, not the first one in history
     const imageMessage = [...messages].reverse().find((msg) => msg.imageDataUrl) || userMessage;
     const imageDataUrl = imageMessage?.imageDataUrl;
 
@@ -152,9 +79,6 @@ class ProviderService {
 
     notify({ stage: 'thinking' });
     console.log('[Vision] Identifying item...');
-    console.log('[Vision] User Content:', visionUser.content);
-    console.log('[Vision] Image Data Length:', visionUser.imageDataUrl ? visionUser.imageDataUrl.length : 0);
-    console.log('[Vision] Image Data Preview:', visionUser.imageDataUrl ? visionUser.imageDataUrl.substring(0, 50) : 'None');
 
     const visionResponse = await this.requestProvider(
       provider,
@@ -174,7 +98,7 @@ class ProviderService {
     }
 
     notify({ stage: 'tool', tool: 'buscarMateriais' });
-    const toolResult = await this.buscarMateriais({ termo: term, limit: 50 });
+    const toolResult = await this.toolService.buscarMateriais({ termo: term, limit: 50 });
 
     const finalSystemPrompt = `${DB_SYSTEM_PROMPT}\n\nOs dados ja foram fornecidos em JSON. Nao chame ferramentas.`;
     const finalMessages = [
@@ -229,7 +153,7 @@ class ProviderService {
     }
 
     notify({ stage: 'tool', tool: 'buscarMateriais' });
-    const toolResult = await this.buscarMateriais({ termo: term, limit: 50 });
+    const toolResult = await this.toolService.buscarMateriais({ termo: term, limit: 50 });
 
     const finalSystemPrompt = `${DB_SYSTEM_PROMPT}\n\nOs dados ja foram fornecidos em JSON. Nao chame ferramentas.`;
     const finalMessages = [
@@ -317,17 +241,18 @@ class ProviderService {
   async runToolLoop({ provider, messages, signal, onStatus }) {
     const notify = typeof onStatus === 'function' ? onStatus : () => { };
     let conversation = [...messages];
-    // Increased loop limit to 10 to allow Sofit pagination
+    const tools = this.toolService.getTools();
+
     for (let step = 0; step < 10; step += 1) {
       notify({ stage: 'thinking' });
       const responseMessage =
         provider === 'openai'
-          ? await this.requestOpenAI(conversation, DB_TOOLS, signal)
+          ? await this.requestOpenAI(conversation, tools, signal)
           : provider === 'openrouter'
-            ? await this.requestOpenRouter(conversation, DB_TOOLS, signal)
+            ? await this.requestOpenRouter(conversation, tools, signal)
             : provider === 'groq'
-              ? await this.requestGroq(conversation, DB_TOOLS, signal)
-              : await this.requestOllama(conversation, DB_TOOLS, signal);
+              ? await this.requestGroq(conversation, tools, signal)
+              : await this.requestOllama(conversation, tools, signal);
 
       if (!responseMessage) {
         return '';
@@ -378,7 +303,6 @@ class ProviderService {
 
     const fallbackModels = hasImages ? visionFallbacks : textFallbacks;
 
-    // Create unique list of models to try: user's choice first, then fallbacks
     const modelsToTry = [userModel, ...fallbackModels].filter((value, index, self) => {
       return self.indexOf(value) === index;
     });
@@ -408,9 +332,6 @@ class ProviderService {
         });
 
         const data = await response.json();
-        if (data?.usage) {
-          console.log('[Groq Usage]', JSON.stringify(data.usage, null, 2));
-        }
 
         if (!response.ok) {
           let message = data?.error?.message || data?.error || 'Groq request failed.';
@@ -420,7 +341,6 @@ class ProviderService {
             message.includes('rate limit') ||
             message.includes('too many requests')
           )) {
-            console.warn(`[Groq] Model ${model} unavailable: ${message}. Trying next fallback...`);
             lastError = new Error(`Groq ${model}: ${message}`);
             continue;
           }
@@ -430,7 +350,6 @@ class ProviderService {
             typeof message === 'string' &&
             message.includes('content must be a string')
           ) {
-            console.warn(`[Groq] Model ${model} does not support images. Trying next...`);
             lastError = new Error(`${message} (Model ${model} does not support images)`);
             continue;
           }
@@ -442,11 +361,9 @@ class ProviderService {
 
       } catch (error) {
         if (signal?.aborted) throw error;
-
         if (lastError && error.message === lastError.message) {
           continue;
         }
-
         if (
           error.message.includes('over capacity') ||
           error.message.includes('rate limit') ||
@@ -455,7 +372,6 @@ class ProviderService {
           lastError = error;
           continue;
         }
-
         throw error;
       }
     }
@@ -753,304 +669,28 @@ class ProviderService {
         args = {};
       }
 
-      if (name === 'buscarMateriais') {
+      try {
         notify({ stage: 'tool', tool: name });
-        const result = await this.buscarMateriais(args);
+        const result = await this.toolService.executeTool(name, args);
         results.push({
           role: 'tool',
           tool_call_id: call?.id || call?.tool_call_id,
           name,
           content: JSON.stringify(result)
         });
-      } else if (name === 'fetchServiceOrders') {
-        notify({ stage: 'tool', tool: name });
-        try {
-          const result = await this.fetchServiceOrders(args);
-          results.push({
-            role: 'tool',
-            tool_call_id: call?.id || call?.tool_call_id,
-            name,
-            content: JSON.stringify(result)
-          });
-        } catch (err) {
-          results.push({
-            role: 'tool',
-            tool_call_id: call?.id || call?.tool_call_id,
-            name,
-            content: JSON.stringify({ error: err.message })
-          });
-        }
-      } else if (name === 'fetchTemplates') {
-        notify({ stage: 'tool', tool: name });
-        try {
-          const result = await this.fetchTemplates(args);
-          results.push({
-            role: 'tool',
-            tool_call_id: call?.id || call?.tool_call_id,
-            name,
-            content: JSON.stringify(result)
-          });
-        } catch (err) {
-          results.push({
-            role: 'tool',
-            tool_call_id: call?.id || call?.tool_call_id,
-            name,
-            content: JSON.stringify({ error: err.message })
-          });
-        }
-      } else {
+      } catch (error) {
         results.push({
           role: 'tool',
           tool_call_id: call?.id || call?.tool_call_id,
           name: name || 'unknown',
-          content: JSON.stringify({ error: 'Tool not implemented.' })
+          content: JSON.stringify({ error: error.message })
         });
       }
     }
     return results;
   }
 
-  normalizeTerm(term) {
-    return String(term || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-  }
-
-  pickRootTerm(term) {
-    const normalized = this.normalizeTerm(term);
-    const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
-    const candidates = tokens.filter((token) => token.length >= 3);
-    if (candidates.length > 0) {
-      return candidates.sort((a, b) => a.length - b.length)[0];
-    }
-    return tokens[0] || normalized;
-  }
-
-  async buscarMateriais(args) {
-    const apiKey = this.store.get('supabaseApiKey', '');
-    if (!apiKey) {
-      throw new Error('Supabase API key is missing. Add it in Settings.');
-    }
-
-    const rawTerm = args?.termo || args?.query || args?.busca_textual || '';
-    const normalizedRoot = this.pickRootTerm(rawTerm);
-    if (!normalizedRoot) {
-      throw new Error('Tool argument "termo" is required.');
-    }
-
-    const limit = Math.min(Math.max(Number(args?.limit || 50), 1), 100);
-    const url = new URL(`${SUPABASE_ENDPOINT}/coletaveis`);
-    url.searchParams.set('busca_textual', `ilike.*${normalizedRoot}*`);
-    url.searchParams.set('select', '*');
-    url.searchParams.set('limit', String(limit));
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        apikey: apiKey,
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json'
-      }
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      const message = data?.error || 'Supabase request failed.';
-      throw new Error(message);
-    }
-
-    return {
-      query: `ilike.*${normalizedRoot}*`,
-      count: Array.isArray(data) ? data.length : 0,
-      items: Array.isArray(data) ? data : []
-    };
-  }
-
-  async getSofitToken() {
-    // Try auto-login
-    const email = this.store.get('sofitEmail', '');
-    const password = this.store.get('sofitPassword', '');
-
-    if (!email || !password) {
-      throw new Error('Sofit Authentication failed: Missing Email/Password in settings.');
-    }
-
-    const baseUrl = 'https://sofitview.com.br';
-
-    // 1. Try REST Endpoints (Primary Method)
-    const restPaths = [
-      '/api/v2/auth/login',
-      '/api/v2/login',
-      '/api/v1/users/login',
-      '/api/auth/login',
-      '/login'
-    ];
-
-    const payloads = [
-      { email, password },
-      { username: email, password },
-      { user: email, password },
-      { user_name: email, password }
-    ];
-
-    // Helper to recursively find token
-    const findToken = (obj) => {
-      if (!obj) return null;
-      if (typeof obj === 'string' && obj.length > 50) return obj; // Simple heuristic
-      if (typeof obj === 'object') {
-        for (const key in obj) {
-          const k = key.toLowerCase();
-          if ((k === 'token' || k.includes('access_token') || k === 'jwt') && typeof obj[key] === 'string') {
-            return obj[key];
-          }
-          const found = findToken(obj[key]);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    for (const path of restPaths) {
-      if (path === '/login') continue; // Skip root login to avoid HTML responses usually
-      const url = `${baseUrl}${path}`;
-      for (const payload of payloads) {
-        try {
-          // console.log(`Sofit Auth: Trying POST ${url} with payload keys: ${Object.keys(payload)}`);
-          const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-
-          if (response.ok) {
-            const json = await response.json().catch(() => null);
-            const token = findToken(json);
-            if (token) return token;
-          }
-        } catch (err) {
-          // Ignore network errors during trial
-        }
-      }
-    }
-
-    // 2. Try GraphQL Mutations (Fallback)
-    const gqlUrl = `${baseUrl}/api/v2/graphql`;
-    const mutations = [
-      {
-        name: 'login',
-        query: 'mutation($email:String!,$password:String!){ login(email:$email,password:$password){ token access_token jwt } }'
-      },
-      {
-        name: 'authenticate',
-        query: 'mutation($email:String!,$password:String!){ authenticate(email:$email,password:$password){ token access_token jwt } }'
-      },
-      {
-        name: 'signIn',
-        query: 'mutation($email:String!,$password:String!){ signIn(email:$email,password:$password){ token access_token jwt } }'
-      }
-    ];
-
-    let lastError = null;
-
-    for (const { name, query } of mutations) {
-      try {
-        const response = await fetch(gqlUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query,
-            variables: { email, password }
-          })
-        });
-
-        const json = await response.json();
-        const data = json?.data?.[name];
-
-        if (data) {
-          const token = findToken(data);
-          if (token) return token;
-        }
-
-        if (json.errors) {
-          console.warn(`Sofit Auth attempt (${name}) failed with API errors:`, json.errors);
-        }
-      } catch (err) {
-        lastError = err;
-      }
-    }
-
-    throw new Error('Sofit Authentication failed. Checked all REST endpoints and GraphQL mutations.');
-  }
-
-  async fetchServiceOrders({ search, page, lastIntegrationDate }) {
-    if (!search) throw new Error('Search term (plate/prefix) is required.');
-    const pageNum = Number(page) || 1;
-    const dateFilter = lastIntegrationDate || '2025-01-01T00:00:00Z';
-
-    const token = await this.getSofitToken();
-
-    const query = `
-      query ($search: String!, $page: Int!, $lastIntegrationDate: DateTime) {
-        serviceOrders(
-          search: $search,
-          page: $page,
-          perPage: 20,
-          lastIntegrationDate: $lastIntegrationDate,
-          sortField: "created_at",
-          sortOrder: "DESC"
-        ) {
-          nodes {
-            id
-            name
-            status
-            total_cost
-            created_at
-            updated_at
-            problem_description
-            vehicle { name }
-            hourmeter
-            final_odometer
-            supplier { name }
-            employee { id name }
-            foreseen_service_order_items {
-              id
-              name
-              foreseen_quantity
-              item { id name }
-            }
-          }
-        }
-      }
-    `;
-
-    const response = await fetch('https://sofitview.com.br/api/v2/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        query,
-        variables: {
-          search,
-          page: pageNum,
-          lastIntegrationDate: dateFilter
-        }
-      })
-    });
-
-    const json = await response.json();
-
-    if (json.errors) {
-      throw new Error(`Sofit API Error: ${JSON.stringify(json.errors)}`);
-    }
-
-    return json?.data?.serviceOrders || {};
-  }
-
   async transcribe(audioBuffer, signal) {
-    // Prioritize Groq for transcription if available (faster/cheaper)
     const groqKey = this.store.get('groqApiKey');
     const openaiKey = this.store.get('openaiApiKey');
 
@@ -1077,15 +717,11 @@ class ProviderService {
       throw new Error(`API Key for ${provider} is missing. Cannot transcribe.`);
     }
 
-    // In Node 20/Electron, FormData is globally available.
-    // We need to create a Blob from the buffer to make FormData happy with filename.
     const blob = new Blob([audioBuffer], { type: 'audio/webm' });
     const formData = new FormData();
     formData.append('file', blob, 'recording.webm');
     formData.append('model', model);
-    // Force language to Portuguese to avoid "Thank you" hallucinations on silence
     formData.append('language', 'pt');
-    // Prompt guides the model style and context to avoid hallucinations
     formData.append('prompt', 'Transcreva o áudio desta reunião ou conversa com clareza. Ignore silêncio e ruídos de fundo.');
     formData.append('temperature', '0.2');
     formData.append('response_format', 'json');
@@ -1114,15 +750,12 @@ class ProviderService {
 
     let clean = text;
 
-    // 1. Remove common Whisper hallucinations (subtitle credits) via Regex
-    // Matches "Legenda...", "Legendas...", "Subtitle...", "Translated by..." case insensitive
-    // It removes the entire matched phrase/sentence if it looks like a credit
     const creditPatterns = [
-      /Legenda(s)?\s+(por|de|pelo|pela)?\s*[:\.]?\s*[A-Z][a-z]+/gi, // Legenda por [Nome]
-      /Legenda\s+Adriana\s+Zanotto/gi, // Specific common one
+      /Legenda(s)?\s+(por|de|pelo|pela)?\s*[:\.]?\s*[A-Z][a-z]+/gi,
+      /Legenda\s+Adriana\s+Zanotto/gi,
       /Sous-titres\s+par/gi,
       /Amara\.org/gi,
-      /Obrigado\./gi, // Common hallucination on silence
+      /Obrigado\./gi,
       /Thank\s+you[\.,!]?/gi,
       /Bye[\.,!]?/gi,
       /Ignore\s+silêncio\s+e\s+ruídos\s+de\s+fundo[\.,!]?/gi,
@@ -1133,239 +766,16 @@ class ProviderService {
       clean = clean.replace(pattern, '');
     }
 
-    // 2. Remove repetitive loops (e.g. "Text Text Text")
     const repeatRegex = /(.{10,})\1+/g;
     clean = clean.replace(repeatRegex, '$1');
 
     return clean.trim();
   }
 
-
-  async fetchTemplates({ keywords, variables }) {
-    console.log('[fetchTemplates] Started with:', { keywords, variables });
-    const token = this.store.get('firebaseToken', '');
-    if (!token) {
-      console.error('[fetchTemplates] Missing Firebase Token');
-      throw new Error('Token do Firebase não configurado nas Configurações.');
-    }
-
-    const endpoint = 'https://firestore.googleapis.com/v1/projects/atendimento-f2f9f/databases/(default)/documents/templates';
-
-    let fetchUrl = endpoint;
-    const headers = {};
-    let finalToken = token.trim();
-
-    // 0. Check if token is Service Account JSON
-    if (finalToken.startsWith('{') && finalToken.includes('client_email')) {
-      console.log('[fetchTemplates] Detected Service Account JSON. Exchanging for Access Token...');
-      try {
-        finalToken = await this.getAccessTokenFromServiceAccount(finalToken);
-        console.log('[fetchTemplates] Access Token generated successfully.');
-      } catch (e) {
-        console.error('[fetchTemplates] Service Account Auth failed:', e);
-        throw new Error(`Erro na autenticação via Service Account: ${e.message}`);
-      }
-    }
-
-    // Check if it's an API Key (starts with AIza) or a Bearer Token (default)
-    if (finalToken.startsWith('AIza')) {
-      fetchUrl = `${endpoint}?key=${finalToken}`;
-    } else {
-      headers['Authorization'] = `Bearer ${finalToken}`;
-    }
-
-    // 1. Fetch templates from Firestore
-    console.log('[fetchTemplates] Fetching from endpoint:', fetchUrl);
-    const response = await fetch(fetchUrl, {
-      method: 'GET',
-      headers
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      console.error('[fetchTemplates] API Error:', err);
-
-      let msg = err?.error?.message || response.statusText;
-      if (response.status === 401 && token.startsWith('ya29')) {
-        msg += ' (Seu token OAuth provavelmete expirou. Gere um novo ou use uma API Key).';
-      }
-
-      throw new Error(`Erro ao buscar templates: ${msg}`);
-    }
-
-    const data = await response.json();
-    const documents = data.documents || [];
-    console.log(`[fetchTemplates] Fetched ${documents.length} documents.`);
-
-    // 2. Fuzzy/Simple Keyword matching
-    // Filter documents where title or template content matches keywords
-    const searchTerms = keywords.toLowerCase().split(' ').filter(t => t.length > 2);
-
-    // Calculate simple score
-    const scored = documents.map(doc => {
-      const fields = doc.fields || {};
-      const title = fields.title?.stringValue || '';
-      const template = fields.template?.stringValue || '';
-      const active = fields.active?.booleanValue ?? true;
-
-      // Skip inactive if you wish, though user might want to see them. Let's filter active only by default?
-      // Based on file, there is an "active" boolean value.
-      if (active === false) return null;
-
-      let score = 0;
-      const combined = (title + ' ' + template).toLowerCase();
-
-      searchTerms.forEach(term => {
-        if (combined.includes(term)) score += 1;
-        if (title.toLowerCase().includes(term)) score += 2; // Title match worth more
-      });
-
-      return { doc, score, title, template, fields };
-    }).filter(item => item !== null && item.score > 0);
-
-    // Sort by score desc
-    scored.sort((a, b) => b.score - a.score);
-
-    const bestMatch = scored[0];
-    if (!bestMatch) {
-      return { warning: 'Nenhum template encontrado com essas palavras-chave.' };
-    }
-
-    // 3. Process Logic & Fill Template
-    // logic map: fields.template_logic.mapValue.fields.[variable].mapValue.fields
-    //   -> condition: mapValue.fields { field: stringValue, value: stringValue }
-    //   -> text: stringValue (Text to append/use if condition matches)
-
-    let finalText = bestMatch.template;
-    const logicMap = bestMatch.fields.template_logic?.mapValue?.fields || {};
-    const filledVars = { ...variables };
-
-    // Apply Logic (simple implementation based on observed structure)
-    // Structure seems to be: conditional text injection based on other fields
-    // Example: "contato2": { condition: { field: "contato", value: "DIGITAL" }, text: "ENTROU EM CONTATO" }
-    // This implies: if variables.contato == "DIGITAL", then variables.contato2 = "ENTROU EM CONTATO"
-
-    for (const [key, logicNode] of Object.entries(logicMap)) {
-      const nodeFields = logicNode?.mapValue?.fields;
-      if (!nodeFields) continue;
-
-      const condition = nodeFields.condition?.mapValue?.fields;
-      const textToApply = nodeFields.text?.stringValue;
-
-      if (condition && textToApply) {
-        const targetField = condition.field?.stringValue;
-        const targetValue = condition.value?.stringValue;
-
-        // Check if our variables meet the condition
-        if (variables[targetField] === targetValue) {
-          filledVars[key] = textToApply;
-        } else {
-          // Logic not met, maybe set empty? Or keep original if exists?
-          // Usually in these engines if condition fails, and it's a derived field, it might be empty.
-          if (!filledVars[key]) filledVars[key] = '';
-        }
-      }
-    }
-
-    // Determine user gender (example based on doc: SR/SRA options)
-    // If the template has {{SR}}, we might want to infer from context or variables
-    // For now, relies on LLM passing "SR": "O SR." or "A SRA."
-
-    // Replace Mustache/Handlebars variables {{key}}
-    // We simple replace globally 
-    for (const [key, val] of Object.entries(filledVars)) {
-      const regex = new RegExp(`{{${key}}}`, 'gi'); // Case insensitive replacement
-      finalText = finalText.replace(regex, String(val));
-    }
-
-    // Cleanup unused tags? Optional. Sometimes templates leave {{missing}} visible to prompt user.
-    // Let's keep them so the user knows what's missing, OR we can tell the LLM.
-
-    return {
-      template_title: bestMatch.title,
-      original_template: bestMatch.template,
-      filled_text: finalText,
-      used_variables: filledVars,
-      match_score: bestMatch.score
-    };
-  }
-
   normalizeOllamaEndpoint(raw) {
     if (!raw) return 'http://localhost:11434/api/chat';
     if (raw.includes('/api/chat')) return raw;
     return `${raw.replace(/\/$/, '')} /api/chat`;
-  }
-
-  // --- Service Account Helpers ---
-
-  base64Url(data) {
-    return Buffer.from(data).toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-  }
-
-  createJWT(clientEmail, privateKey) {
-    const header = {
-      alg: 'RS256',
-      typ: 'JWT'
-    };
-
-    const now = Math.floor(Date.now() / 1000);
-    const claim = {
-      iss: clientEmail,
-      scope: 'https://www.googleapis.com/auth/datastore',
-      aud: 'https://oauth2.googleapis.com/token',
-      exp: now + 3600,
-      iat: now
-    };
-
-    const encodedHeader = this.base64Url(JSON.stringify(header));
-    const encodedClaim = this.base64Url(JSON.stringify(claim));
-
-    const sign = crypto.createSign('RSA-SHA256');
-    sign.update(`${encodedHeader}.${encodedClaim}`);
-    const signature = sign.sign(privateKey, 'base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-
-    return `${encodedHeader}.${encodedClaim}.${signature}`;
-  }
-
-  async getAccessTokenFromServiceAccount(serviceAccountJson) {
-    try {
-      const credentials = JSON.parse(serviceAccountJson);
-      const { client_email, private_key } = credentials;
-
-      if (!client_email || !private_key) {
-        throw new Error('JSON de Service Account inválido. Faltando client_email ou private_key.');
-      }
-
-      console.log('[Auth] Generating JWT for:', client_email);
-      const jwt = this.createJWT(client_email, private_key);
-
-      const params = new URLSearchParams();
-      params.append('grant_type', 'urn:ietf:params:oauth:grant-type:jwt-bearer');
-      params.append('assertion', jwt);
-
-      const response = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        body: params
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('[Auth] Token exchange failed:', error);
-        throw new Error(`Falha ao trocar JWT por Token: ${error.error_description || response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.access_token;
-    } catch (err) {
-      console.error('[Auth] Service Account Error:', err);
-      throw err;
-    }
   }
 
   normalizeGeminiModel(raw) {
@@ -1431,17 +841,11 @@ IMPORTANTE: Saia APENAS o novo resumo atualizado em Markdown. Não explique o qu
 
     const messages = [{ role: 'user', content: prompt }];
 
-    // Reuse existing chat logic but force text-only (no tools usually needed for summary, but keep it simple)
-    // We can use 'chat' method which handles provider selection automatically.
-    // NOTE: We need to handle streaming vs blocking. Here blocking is easier for update.
-    // But 'chat' yields chunks. We can accumulate them.
-
     let fullResponse = '';
     const result = await this.chat(messages, signal, (chunk) => {
       if (chunk.content) fullResponse += chunk.content;
     });
 
-    // Fallback: if chat() returns a string (blocking mode) and no chunks were received
     if (!fullResponse && typeof result === 'string') {
       fullResponse = result;
     }
