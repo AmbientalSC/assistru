@@ -39,5 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   getPersonalities: () => ipcRenderer.invoke('personalities:get'),
   savePersonalities: (personalities) => ipcRenderer.invoke('personalities:save', { personalities }),
-  setActivePersonality: (id) => ipcRenderer.invoke('personalities:setActive', id)
+  setActivePersonality: (id) => ipcRenderer.invoke('personalities:setActive', id),
+  resizeWindow: (width, height) => ipcRenderer.invoke('resize-window', width, height),
+  summarizeMeeting: (currentSummary, newText) => ipcRenderer.invoke('meeting:summarize', currentSummary, newText)
 });

@@ -133,6 +133,32 @@ Sempre que precisar de dados, chame a ferramenta buscarMateriais usando apenas o
     return true;
   });
 
+  // Handle window resizing (e.g., for Side Panel)
+  ipcMain.handle('resize-window', async (event, width, height) => {
+    if (!mainWindow) return;
+    const currentBounds = mainWindow.getBounds();
+    const newWidth = width || currentBounds.width;
+    const newHeight = height || currentBounds.height;
+
+    // Only resize if different
+    if (newWidth !== currentBounds.width || newHeight !== currentBounds.height) {
+      mainWindow.setSize(newWidth, newHeight, true); // true = animate
+    }
+  });
+
+  // Handle Meeting Summarization
+  ipcMain.handle('meeting:summarize', async (event, currentSummary, newText) => {
+    // Create a signal for cancellation if needed (though we don't expose cancel here yet)
+    const controller = new AbortController();
+    try {
+      const summary = await providerService.generateMeetingSummary(currentSummary, newText, controller.signal);
+      return summary;
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      return null; // Return null on error so UI can handle it (maybe append raw text as fallback)
+    }
+  });
+
   const providerService = new ProviderService(store);
 
   const normalizeOllamaBase = (raw) => {

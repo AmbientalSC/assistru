@@ -1,3 +1,5 @@
+const { ipcMain } = require('electron');
+const crypto = require('crypto');
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -1140,28 +1142,60 @@ class ProviderService {
 
 
   async fetchTemplates({ keywords, variables }) {
+    console.log('[fetchTemplates] Started with:', { keywords, variables });
     const token = this.store.get('firebaseToken', '');
     if (!token) {
+      console.error('[fetchTemplates] Missing Firebase Token');
       throw new Error('Token do Firebase não configurado nas Configurações.');
     }
 
     const endpoint = 'https://firestore.googleapis.com/v1/projects/atendimento-f2f9f/databases/(default)/documents/templates';
 
-    // 1. Fetch templates from Firestore
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
+    let fetchUrl = endpoint;
+    const headers = {};
+    let finalToken = token.trim();
+
+    // 0. Check if token is Service Account JSON
+    if (finalToken.startsWith('{') && finalToken.includes('client_email')) {
+      console.log('[fetchTemplates] Detected Service Account JSON. Exchanging for Access Token...');
+      try {
+        finalToken = await this.getAccessTokenFromServiceAccount(finalToken);
+        console.log('[fetchTemplates] Access Token generated successfully.');
+      } catch (e) {
+        console.error('[fetchTemplates] Service Account Auth failed:', e);
+        throw new Error(`Erro na autenticação via Service Account: ${e.message}`);
       }
+    }
+
+    // Check if it's an API Key (starts with AIza) or a Bearer Token (default)
+    if (finalToken.startsWith('AIza')) {
+      fetchUrl = `${endpoint}?key=${finalToken}`;
+    } else {
+      headers['Authorization'] = `Bearer ${finalToken}`;
+    }
+
+    // 1. Fetch templates from Firestore
+    console.log('[fetchTemplates] Fetching from endpoint:', fetchUrl);
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      headers
     });
 
     if (!response.ok) {
       const err = await response.json();
-      throw new Error(`Erro ao buscar templates: ${err?.error?.message || response.statusText}`);
+      console.error('[fetchTemplates] API Error:', err);
+
+      let msg = err?.error?.message || response.statusText;
+      if (response.status === 401 && token.startsWith('ya29')) {
+        msg += ' (Seu token OAuth provavelmete expirou. Gere um novo ou use uma API Key).';
+      }
+
+      throw new Error(`Erro ao buscar templates: ${msg}`);
     }
 
     const data = await response.json();
     const documents = data.documents || [];
+    console.log(`[fetchTemplates] Fetched ${documents.length} documents.`);
 
     // 2. Fuzzy/Simple Keyword matching
     // Filter documents where title or template content matches keywords
@@ -1262,6 +1296,78 @@ class ProviderService {
     return `${raw.replace(/\/$/, '')} /api/chat`;
   }
 
+  // --- Service Account Helpers ---
+
+  base64Url(data) {
+    return Buffer.from(data).toString('base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+  }
+
+  createJWT(clientEmail, privateKey) {
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT'
+    };
+
+    const now = Math.floor(Date.now() / 1000);
+    const claim = {
+      iss: clientEmail,
+      scope: 'https://www.googleapis.com/auth/datastore',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now
+    };
+
+    const encodedHeader = this.base64Url(JSON.stringify(header));
+    const encodedClaim = this.base64Url(JSON.stringify(claim));
+
+    const sign = crypto.createSign('RSA-SHA256');
+    sign.update(`${encodedHeader}.${encodedClaim}`);
+    const signature = sign.sign(privateKey, 'base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+
+    return `${encodedHeader}.${encodedClaim}.${signature}`;
+  }
+
+  async getAccessTokenFromServiceAccount(serviceAccountJson) {
+    try {
+      const credentials = JSON.parse(serviceAccountJson);
+      const { client_email, private_key } = credentials;
+
+      if (!client_email || !private_key) {
+        throw new Error('JSON de Service Account inválido. Faltando client_email ou private_key.');
+      }
+
+      console.log('[Auth] Generating JWT for:', client_email);
+      const jwt = this.createJWT(client_email, private_key);
+
+      const params = new URLSearchParams();
+      params.append('grant_type', 'urn:ietf:params:oauth:grant-type:jwt-bearer');
+      params.append('assertion', jwt);
+
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        body: params
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('[Auth] Token exchange failed:', error);
+        throw new Error(`Falha ao trocar JWT por Token: ${error.error_description || response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.access_token;
+    } catch (err) {
+      console.error('[Auth] Service Account Error:', err);
+      throw err;
+    }
+  }
+
   normalizeGeminiModel(raw) {
     const value = String(raw || '').trim();
     if (!value) return 'gemini-2.5-flash';
@@ -1306,6 +1412,41 @@ class ProviderService {
       return { mimeType: 'image/png', data: dataUrl };
     }
     return { mimeType: match[1], data: match[2] };
+  }
+
+  async generateMeetingSummary(currentSummary, newText, signal) {
+    const prompt = `
+Você é um secretário experto em reuniões.
+Resumo Atual da Reunião:
+${currentSummary || "Nenhum resumo ainda."}
+
+Novo Trecho Transcrito:
+"${newText}"
+
+Tarefa: Atualize o resumo da reunião incorporando as novas informações do trecho.
+Mantenha um formato organizado (Tópicos: Detalhes).
+Seja conciso, claro e objetivo.
+IMPORTANTE: Saia APENAS o novo resumo atualizado em Markdown. Não explique o que fez.
+    `.trim();
+
+    const messages = [{ role: 'user', content: prompt }];
+
+    // Reuse existing chat logic but force text-only (no tools usually needed for summary, but keep it simple)
+    // We can use 'chat' method which handles provider selection automatically.
+    // NOTE: We need to handle streaming vs blocking. Here blocking is easier for update.
+    // But 'chat' yields chunks. We can accumulate them.
+
+    let fullResponse = '';
+    const result = await this.chat(messages, signal, (chunk) => {
+      if (chunk.content) fullResponse += chunk.content;
+    });
+
+    // Fallback: if chat() returns a string (blocking mode) and no chunks were received
+    if (!fullResponse && typeof result === 'string') {
+      fullResponse = result;
+    }
+
+    return fullResponse.trim();
   }
 }
 
