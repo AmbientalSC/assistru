@@ -41,6 +41,7 @@ const defaultSettings = {
   ollamaOptions: '',
   ollamaApiKey: '',
   supabaseApiKey: '',
+  googleMapsApiKey: '',
   dbToolEnabled: true,
   windowOpacity: 0.92,
   floatingShortcutEnabled: true,
@@ -1196,7 +1197,7 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Ambi Chat <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.20</span>
+                Assistru <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.21</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -2112,6 +2113,21 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
 
                 {settingsTab === 'integration' && (
                   <div>
+                    {/* Google Geocoding Section */}
+                    <h3 className="mb-4 text-sm font-semibold text-emerald-400">Google Geocoding</h3>
+                    <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                      Google Maps API Key
+                    </label>
+                    <input
+                      className="mb-4 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                      type="password"
+                      placeholder="AIza..."
+                      value={settings.googleMapsApiKey || ''}
+                      onChange={(event) => updateSetting('googleMapsApiKey', event.target.value)}
+                    />
+
+                    <div className="my-6 h-px bg-white/10" />
+
                     {/* Supabase Section */}
                     <h3 className="mb-4 text-sm font-semibold text-emerald-400">Supabase</h3>
                     <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">

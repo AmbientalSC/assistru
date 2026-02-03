@@ -71,6 +71,23 @@ const DB_TOOLS = [
                 required: ['keywords', 'variables']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'buscarColeta',
+            description: 'Busca os dias e horarios de coleta de lixo (domiciliar e seletiva) para um endereco. OBTENHA o endereco completo do usuario.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    endereco: {
+                        type: 'string',
+                        description: 'Endereço completo para busca (Rua, Número, Cidade, Estado). Ex: "Rua XV de Novembro, 123, Joinville, SC".'
+                    }
+                },
+                required: ['endereco']
+            }
+        }
     }
 ];
 
@@ -92,6 +109,9 @@ class ToolService {
         }
         if (name === 'fetchTemplates') {
             return this.fetchTemplates(args);
+        }
+        if (name === 'buscarColeta') {
+            return this.buscarColeta(args);
         }
         throw new Error(`Ferramenta desconhecida: ${name}`);
     }
@@ -527,6 +547,91 @@ class ToolService {
             console.error('[Auth] Service Account Error:', err);
             throw err;
         }
+    }
+    async buscarColeta(args) {
+        const endereco = args?.endereco;
+        if (!endereco) {
+            throw new Error('O argumento "endereco" é obrigatório.');
+        }
+
+        console.log('[ToolService] Buscando coleta para:', endereco);
+
+        // 1. Google Geocoding
+        const googleApiKey = this.store.get('googleMapsApiKey');
+        if (!googleApiKey) {
+            throw new Error('Google Maps API Key não configurada. Configure em Settings > Integração.');
+        }
+
+        const googleUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+        googleUrl.searchParams.set('address', endereco);
+        googleUrl.searchParams.set('key', googleApiKey);
+        googleUrl.searchParams.set('language', 'pt-BR');
+
+        const googleResp = await fetch(googleUrl.toString());
+        if (!googleResp.ok) {
+            throw new Error(`Erro na API Google Maps: ${googleResp.statusText}`);
+        }
+
+        const googleData = await googleResp.json();
+        if (googleData.status !== 'OK') {
+            if (googleData.status === 'ZERO_RESULTS') {
+                return {
+                    found: false,
+                    message: 'Endereço não encontrado. Tente ser mais específico (Rua, Número, Cidade).'
+                };
+            }
+            throw new Error(`Erro Google Maps Geocoding: ${googleData.status} - ${googleData.error_message || ''}`);
+        }
+
+        const result = googleData.results[0];
+        const lat = result.geometry.location.lat;
+        const lon = result.geometry.location.lng; // Google returns 'lng', we map to 'lon'
+        const display_name = result.formatted_address; // Map to variable expected below
+
+        console.log('[ToolService] Coordenadas encontradas (Google):', lat, lon);
+
+        // 2. AWS Coleta API
+        const coletaUrl = new URL('https://ahyisv2ac8.execute-api.us-east-1.amazonaws.com/coleta');
+        coletaUrl.searchParams.set('lat', lat);
+        coletaUrl.searchParams.set('lng', lon);
+        coletaUrl.searchParams.set('dst', '100'); // Distance buffer?
+
+        const coletaResp = await fetch(coletaUrl.toString());
+        if (!coletaResp.ok) {
+            throw new Error(`Erro na API de Coleta: ${coletaResp.statusText}`);
+        }
+
+        const coletaData = await coletaResp.json();
+
+        // Aggregating messages
+        const messagesSet = new Set();
+
+        // Return simplified data to help the AI focus
+        const simplifiedResult = Array.isArray(coletaData?.result)
+            ? coletaData.result.map(item => {
+                const details = item[item.tipo] || {};
+
+                if (details.mensagem) {
+                    messagesSet.add(details.mensagem);
+                }
+
+                return {
+                    tipo: item.tipo,
+                    turno: details.turno,
+                    frequencia: details.frequencia,
+                    horario: details.horario
+                };
+            })
+            : [];
+
+        return {
+            found: true,
+            address_searched: endereco,
+            resolved_address: display_name,
+            coordinates: { lat, lon },
+            coleta_info: simplifiedResult,
+            orientacoes_gerais: Array.from(messagesSet) // New field for footer text
+        };
     }
 }
 
