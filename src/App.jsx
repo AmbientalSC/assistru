@@ -20,11 +20,45 @@ import {
   Check,
   Play,
   LogOut,
-  Loader2
+  Loader2,
+  Copy,
+  ClipboardCheck
 } from 'lucide-react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import LoginScreen from './components/LoginScreen';
+
+const defaultMeetingSummaryPrompt = `
+Voce e um secretario experto em reunioes.
+Resumo Atual da Reuniao:
+{{currentSummary}}
+
+Novo Trecho Transcrito:
+"{{newText}}"
+
+Tarefa: Atualize o resumo da reuniao incorporando as novas informacoes do trecho.
+Mantenha um formato organizado (Topicos: Detalhes).
+Seja conciso, claro e objetivo.
+IMPORTANTE: Saia APENAS o novo resumo atualizado em Markdown. Nao explique o que fez.
+`.trim();
+
+const defaultMeetingFinalPrompt = `
+[Finalizacao da Reuniao]
+Aqui estao todas as anotacoes e a transcricao final desta reuniao:
+
+{{fullContent}}
+
+Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e instrucoes padrao.
+`.trim();
+
+const fillPromptTemplate = (template, variables = {}) => {
+  let output = String(template || '');
+  for (const [key, value] of Object.entries(variables)) {
+    const token = `{{${key}}}`;
+    output = output.split(token).join(value == null ? '' : String(value));
+  }
+  return output.trim();
+};
 
 const defaultSettings = {
   provider: 'ollama',
@@ -48,7 +82,9 @@ const defaultSettings = {
   globalShortcut: 'CommandOrControl+Shift+Space',
   sofitEmail: '',
   sofitPassword: '',
-  firebaseToken: ''
+  firebaseToken: '',
+  meetingSummaryPrompt: defaultMeetingSummaryPrompt,
+  meetingFinalPrompt: defaultMeetingFinalPrompt
 };
 
 const groqModelOptions = [
@@ -115,6 +151,7 @@ export default function App() {
   const [pendingImage, setPendingImage] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [copiedSummaryIndex, setCopiedSummaryIndex] = useState(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -170,6 +207,8 @@ export default function App() {
   const audioStreamRef = useRef(null);
   const batchChunksRef = useRef([]);
   const transcriptionIntervalRef = useRef(null);
+  const lastSysAudioTimestampRef = useRef(null);
+  const silenceAutoStopTriggeredRef = useRef(false);
   const [settings, setSettings] = useState(defaultSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('general');
@@ -947,6 +986,12 @@ export default function App() {
       // Visualizer Loop
       // Visualizer Loop
       const dataArray = new Uint8Array(256);
+      // Silence detection config
+      const SYS_SILENCE_THRESHOLD = 2; // Nível mínimo para considerar "com áudio do sistema"
+      const SYS_SILENCE_TIMEOUT_MS = 45000; // 45 segundos sem áudio do sistema
+      lastSysAudioTimestampRef.current = Date.now();
+      silenceAutoStopTriggeredRef.current = false;
+
       const updateLevel = () => {
         if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
 
@@ -966,6 +1011,29 @@ export default function App() {
 
         // Legacy compatibility
         setAudioLevel(Math.max(micNorm, sysNorm));
+
+        // Silence detection: reset timer when system audio is detected
+        if (sysNorm >= SYS_SILENCE_THRESHOLD) {
+          lastSysAudioTimestampRef.current = Date.now();
+        } else if (includeSystemAudio && !silenceAutoStopTriggeredRef.current) {
+          const elapsed = Date.now() - lastSysAudioTimestampRef.current;
+          if (elapsed >= SYS_SILENCE_TIMEOUT_MS) {
+            console.log(`🔇 45s sem áudio do sistema detectado. Parando gravação automaticamente...`);
+            silenceAutoStopTriggeredRef.current = true;
+            // Trigger a real stop (not restart)
+            isRestartingRef.current = false;
+            if (transcriptionIntervalRef.current) {
+              clearInterval(transcriptionIntervalRef.current);
+              transcriptionIntervalRef.current = null;
+            }
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            if (window.api && window.api.sendRecordingStatus) {
+              window.api.sendRecordingStatus(false);
+            }
+            return; // Stop the visualizer loop
+          }
+        }
 
         requestAnimationFrame(updateLevel);
       };
@@ -1097,12 +1165,8 @@ export default function App() {
 
           const fullContent = [notes, preview, finalChunk].filter(Boolean).join('\n\n');
 
-          const summaryPrompt = `[Finalização da Reunião]
-Aqui estão todas as anotações e a transcrição final dessa reunião:
-
-${fullContent}
-
-Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e instruções padrão.`;
+          const finalPromptTemplate = (settings.meetingFinalPrompt || '').trim() || defaultMeetingFinalPrompt;
+          const summaryPrompt = fillPromptTemplate(finalPromptTemplate, { fullContent });
 
           setInput(''); // Clear input
 
@@ -1119,7 +1183,7 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             // Trigger API call
             window.api.chat(updatedHistory)
               .then(response => {
-                setMessages(h => [...h, { role: 'assistant', content: response || 'No response.' }]);
+                setMessages(h => [...h, { role: 'assistant', content: response || 'No response.', isSummary: true }]);
               })
               .catch(err => {
                 setMessages(h => [...h, { role: 'assistant', content: `Error: ${err.message}` }]);
@@ -1197,7 +1261,7 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-slate-100">
-                Assistru <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.22</span>
+                Assistru <span className="text-xs font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20">v0.1.23</span>
               </h1>
               {updateAvailable && (
                 <button
@@ -1327,12 +1391,32 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
                       />
                     )}
                     {message.role === 'assistant' ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={markdownComponents}
-                      >
-                        {message.content || ''}
-                      </ReactMarkdown>
+                      <>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={markdownComponents}
+                        >
+                          {message.content || ''}
+                        </ReactMarkdown>
+                        {message.isSummary && (
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(message.content || '').then(() => {
+                                setCopiedSummaryIndex(index);
+                                setTimeout(() => setCopiedSummaryIndex(null), 2000);
+                              });
+                            }}
+                            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-400/20 hover:text-emerald-200 transition"
+                            title="Copiar resumo em Markdown"
+                          >
+                            {copiedSummaryIndex === index ? (
+                              <><ClipboardCheck size={14} className="text-emerald-400" /> <span className="text-emerald-400">Copiado!</span></>
+                            ) : (
+                              <><Copy size={14} /> <span>Copiar Resumo</span></>
+                            )}
+                          </button>
+                        )}
+                      </>
                     ) : (
                       <p className="whitespace-pre-wrap text-slate-100/90">
                         {message.content || (message.imageDataUrl ? ' ' : '')}
@@ -1694,6 +1778,46 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
                           </option>
                         ))}
                     </select>
+
+                    <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                      Prompt de Resumo (Parcial)
+                    </label>
+                    <textarea
+                      className="mb-2 h-28 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 font-mono"
+                      value={settings.meetingSummaryPrompt || ''}
+                      onChange={(event) => updateSetting('meetingSummaryPrompt', event.target.value)}
+                      placeholder="Use {{currentSummary}} e {{newText}}"
+                    />
+                    <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Placeholders: {'{{currentSummary}}'} e {'{{newText}}'}</span>
+                      <button
+                        type="button"
+                        className="rounded border border-white/10 px-2 py-1 hover:bg-white/10"
+                        onClick={() => updateSetting('meetingSummaryPrompt', defaultMeetingSummaryPrompt)}
+                      >
+                        Restaurar
+                      </button>
+                    </div>
+
+                    <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
+                      Prompt de Resumo Final
+                    </label>
+                    <textarea
+                      className="mb-2 h-24 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 font-mono"
+                      value={settings.meetingFinalPrompt || ''}
+                      onChange={(event) => updateSetting('meetingFinalPrompt', event.target.value)}
+                      placeholder="Use {{fullContent}}"
+                    />
+                    <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Placeholder: {'{{fullContent}}'}</span>
+                      <button
+                        type="button"
+                        className="rounded border border-white/10 px-2 py-1 hover:bg-white/10"
+                        onClick={() => updateSetting('meetingFinalPrompt', defaultMeetingFinalPrompt)}
+                      >
+                        Restaurar
+                      </button>
+                    </div>
 
                     <label className="mb-2 block text-xs uppercase tracking-widest text-slate-300/70">
                       Opacidade da Janela
@@ -2343,3 +2467,4 @@ Com base nisso, por favor gere o Resumo Geral Final seguindo sua personalidade e
     </div>
   );
 }
+
